@@ -1,0 +1,18 @@
+{
+  "name": "observability-baseline",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "build": "npm run -ws --if-present build",
+    "test": "npm run -ws --if-present test",
+    "typecheck": "npm run -ws --if-present typecheck",
+    "clean": "npm run -ws --if-present clean"
+  },
+  "engines": {
+    "node": ">=18.18"
+  }
+}

@@ -1,0 +1,181 @@
+{
+  "uid": "blast-radius",
+  "title": "Blast Radius",
+  "tags": ["observability", "incident", "microservices"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "trace_id",
+        "label": "Trace ID",
+        "type": "textbox",
+        "query": "",
+        "current": { "text": "", "value": "" },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "How to use this dashboard",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Which service is the cause, and which are victims?**\n\n1. *Failing dependencies* below lists broken `caller → callee` edges. The **deepest** failing callee is the root cause; everything calling into it is collateral damage.\n2. *Impacted services* shows every service currently returning errors.\n3. Paste a trace id into the **Trace ID** variable at the top to pull that request's logs from **every** service at once."
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Failing dependencies (caller → callee)",
+      "description": "Broken edges from Tempo's service-graph generator. The deepest failing callee is the root cause.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "mappings": [],
+          "unit": "reqps",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "editorMode": "code",
+          "expr": "sum by (client, server) (rate(traces_service_graph_request_failed_total[5m]))",
+          "legendFormat": "{{client}} → {{server}}",
+          "range": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Impacted services (error rate)",
+      "description": "Inbound (server-side) error rate per service. NB: Tempo's generator labels this `service`, not `service_name`.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "mappings": [],
+          "unit": "reqps",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "editorMode": "code",
+          "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\", span_kind=\"SPAN_KIND_SERVER\"}[5m]))",
+          "legendFormat": "{{service}}",
+          "range": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Impacted services — error % of traffic (now)",
+      "description": "Share of inbound requests failing, per service. 100% means the service is fully down for that path.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.01 },
+              { "color": "red", "value": 0.5 }
+            ]
+          },
+          "custom": { "align": "auto", "cellOptions": { "type": "color-text" } }
+        },
+        "overrides": []
+      },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "editorMode": "code",
+          "instant": true,
+          "format": "table",
+          "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\", span_kind=\"SPAN_KIND_SERVER\"}[5m])) / clamp_min(sum by (service) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[5m])), 0.0001)",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "Value": "error ratio" } } }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Errors across all services",
+      "description": "Every service's error logs. Click a line's TraceID → View Trace to jump into Tempo.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "editorMode": "code",
+          "expr": "{service_name=~\".+\"} | detected_level = `error`",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "One request across every service (set the Trace ID variable)",
+      "description": "All logs sharing a trace id, from every service it touched — the causal story of a single failed request. Matched as `0*<id>` because Tempo's search API strips leading zeros from trace ids while Loki stores the full 32-char value.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 21 },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Ascending",
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "editorMode": "code",
+          "expr": "{service_name=~\".+\"} | trace_id =~ `0*$trace_id` | label_format svc=service_name | line_format `{{.svc}} | {{__line__}}`",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

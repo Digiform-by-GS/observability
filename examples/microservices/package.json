@@ -1,0 +1,26 @@
+{
+  "name": "@digiform/microservices-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Three chained Express services (checkout-api → orders → payments) wired to @digiform/observability — demonstrates cross-service trace propagation and blast-radius analysis when a downstream fails.",
+  "type": "module",
+  "scripts": {
+    "start:payments": "OTEL_SERVICE_NAME=payments PORT=8083 node --import tsx --import @digiform/observability/preload src/payments.ts",
+    "start:orders": "OTEL_SERVICE_NAME=orders PORT=8082 node --import tsx --import @digiform/observability/preload src/orders.ts",
+    "start:checkout": "OTEL_SERVICE_NAME=checkout-api PORT=8080 node --import tsx --import @digiform/observability/preload src/checkout.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@digiform/observability": "*",
+    "express": "^4.21.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
