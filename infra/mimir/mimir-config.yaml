@@ -66,6 +66,10 @@ limits:
   ingestion_rate: 100000
   ingestion_burst_size: 200000
   native_histograms_ingestion_enabled: true
+  # Exemplar storage defaults to 0 (disabled), which silently DROPS the exemplars
+  # Tempo's metrics generator sends (`send_exemplars: true` in tempo-config.yaml).
+  # Without this, the Grafana "metric → example trace" link can never fire.
+  max_global_exemplars_per_user: 100000
 
 usage_stats:
   enabled: false

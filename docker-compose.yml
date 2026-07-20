@@ -9,6 +9,7 @@ volumes:
   loki-data:
   tempo-data:
   mimir-data:
+  pyroscope-data:
 
 services:
   loki:
@@ -42,6 +43,18 @@ services:
       - mimir-data:/data
     ports:
       - "9009:9009"
+    networks: [obs]
+
+  # Continuous profiler. Answers "which function is allocating/burning CPU?" —
+  # a question metrics and traces structurally cannot answer, since heap gauges
+  # are per-process and spans measure time, not allocation.
+  pyroscope:
+    image: grafana/pyroscope:2.1.1
+    container_name: pyroscope
+    volumes:
+      - pyroscope-data:/data
+    ports:
+      - "4040:4040"
     networks: [obs]
 
   otel-collector:

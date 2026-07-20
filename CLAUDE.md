@@ -25,6 +25,7 @@ trace-correlated logs all land in Tempo / Mimir / Loki and render in Grafana.
 | Loki | `grafana/loki:3.7.1` |
 | Tempo | `grafana/tempo:2.10.5` |
 | Mimir | `grafana/mimir:3.0.6` |
+| Pyroscope | `grafana/pyroscope:2.1.1` |
 | OTel Collector Contrib | `otel/opentelemetry-collector-contrib:0.154.0` |
 | Node.js | 20 LTS minimum (dev machine runs 24.11.0) |
 | TypeScript | 5.x |
@@ -43,9 +44,17 @@ App (OTLP/HTTP :4318 or gRPC :4317)
         ├─ traces  ──► Tempo  :4318  (OTLP HTTP, internal)
         └─ metrics ──► Mimir  :9009  (Prometheus remote_write /api/v1/push)
 
-Tempo metrics generator  ──► Mimir  (span-metrics + service-graphs)
-Grafana :3000 ─────────► Loki, Tempo, Mimir (pre-provisioned datasources)
+App (Pyroscope SDK, opt-in via PYROSCOPE_SERVER_ADDRESS)
+  └─► Pyroscope :4040  (profiles — heap/wall by function)
+
+Tempo metrics generator  ──► Mimir  (span-metrics + service-graphs, with exemplars)
+Grafana :3000 ─────────► Loki, Tempo, Mimir, Pyroscope (pre-provisioned datasources)
 ```
+
+Profiles bypass the Collector: OTLP profiling is still experimental, so the Pyroscope SDK pushes
+directly. Profiling answers the one question the other three signals structurally cannot — *which
+function* allocated the memory — because heap gauges are per-process and spans measure time, not
+allocation.
 
 ---
 
@@ -94,6 +103,11 @@ never match.
   `service_name` *is* correct for Loki queries — the two systems genuinely differ.
 - Tempo's search API returns trace ids with **leading zeros stripped** (31 chars); Loki stores the full
   32-char value. Match with ``| trace_id=~`0*<id>` `` or ~1 lookup in 16 silently returns nothing.
+- Exemplars need **two** settings to agree: `max_global_exemplars_per_user` non-zero in Mimir (0 =
+  drop everything Tempo sends) and `exemplarTraceIdDestinations: name: traceID` (camelCase) in the
+  Grafana datasource. Either wrong = a dead link with no error anywhere.
+- Pyroscope's Node SDK emits profile type `memory:inuse_space:bytes:inuse_space:bytes`. The Go-style
+  `memory:inuse_space:bytes:space:bytes` returns an empty flame graph, not an error.
 
 ---
 
@@ -179,6 +193,7 @@ First boot of any app from `/mnt/d` takes ~90–175s (WSL2 9P filesystem bridge)
 | 4318 | OTel Collector | OTLP HTTP receiver |
 | 8888 | OTel Collector | Self-metrics (Prometheus) |
 | 9009 | Mimir | Prometheus-compatible API |
+| 4040 | Pyroscope | Continuous profiling ingest + UI |
 | 8080 | checkout-api | microservices demo — edge service |
 | 8082 | orders | microservices demo — middle service |
 | 8083 | payments | microservices demo — leaf + fault injection |

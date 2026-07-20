@@ -1,8 +1,11 @@
 import { getLogger } from '@digiform/observability';
+import { startProfiling } from './profiling.js';
 import { startService } from './service.js';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const ORDERS_URL = process.env.ORDERS_URL ?? 'http://localhost:8082';
+
+await startProfiling('checkout-api');
 
 startService('checkout-api', PORT, (app) => {
   const log = getLogger();

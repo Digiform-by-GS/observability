@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '@digiform/observability';
+import { startProfiling } from './profiling.js';
 import { startService } from './service.js';
 
 const PORT = Number(process.env.PORT ?? 8082);
 const PAYMENTS_URL = process.env.PAYMENTS_URL ?? 'http://localhost:8083';
+
+await startProfiling('orders');
 
 startService('orders', PORT, (app) => {
   const log = getLogger();

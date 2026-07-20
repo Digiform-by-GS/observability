@@ -1,4 +1,5 @@
 import { getLogger } from '@digiform/observability';
+import { startProfiling } from './profiling.js';
 import { startService } from './service.js';
 
 const PORT = Number(process.env.PORT ?? 8083);
@@ -7,6 +8,8 @@ const PORT = Number(process.env.PORT ?? 8083);
 // point for the blast-radius demo. payments is the leaf of the call chain, so
 // everything upstream of it should light up when this is on.
 let failureMode = false;
+
+await startProfiling('payments');
 
 startService('payments', PORT, (app) => {
   const log = getLogger();

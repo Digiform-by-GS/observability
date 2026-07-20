@@ -218,12 +218,14 @@ Two working references live in this repo:
 Your services ──OTLP/HTTP :4318──► OTel Collector ─┬─► Loki   :3100   logs
                                                    ├─► Tempo          traces
                                                    └─► Mimir  :9009   metrics
+              ──HTTP :4040───────► Pyroscope                          profiles
                                     Tempo generator ──► Mimir  (span-metrics + service graph)
-                                    Grafana :3000 ────► all three
+                                    Grafana :3000 ────► all four
 ```
 
-Applications only ever talk to the Collector. Swapping a backend is a Collector config change, not
-an application change.
+Applications only ever talk to the Collector for the three OTLP signals. Swapping a backend is a
+Collector config change, not an application change. Profiles are the exception: the Pyroscope SDK
+pushes straight to Pyroscope, because OTLP profiling is still experimental.
 
 ### Per-environment configuration
 
@@ -250,6 +252,7 @@ and low-cardinality. Never put a pod name, build id, or commit sha in `OTEL_SERV
 | 4317 / 4318 | OTel Collector | OTLP gRPC / HTTP — **what apps point at** |
 | 8888 | OTel Collector | self-metrics |
 | 9009 | Mimir | Prometheus-compatible API |
+| 4040 | Pyroscope | profiles ingest + UI |
 
 ### Health checks
 
@@ -362,6 +365,16 @@ sum by (service) (rate(traces_spanmetrics_calls_total{
 histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket[5m])))
 ```
 
+**Exemplars — jump from a latency spike to a real trace.** Span-metrics carry exemplars (a sampled
+`traceID` attached to a data point). Enable the *Exemplars* toggle on a Prometheus panel/Explore
+query and the dots become click-throughs into Tempo. This works for request-driven metrics only
+(latency, calls) — a memory gauge has no trace to point at.
+
+Two settings must agree, and both were wrong by default here:
+`max_global_exemplars_per_user` must be non-zero in `mimir-config.yaml` (0 = silently drop every
+exemplar Tempo sends), and the datasource's `exemplarTraceIdDestinations` name must be **`traceID`**
+— Tempo's generator emits camelCase, so `trace_id` yields a dead link with no error.
+
 ```logql
 {service_name=~".+"} | detected_level = `error`        # all errors, all services
 {service_name="orders"} | orderId="abc-123"            # find one entity's logs
@@ -370,6 +383,106 @@ histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_b
 > **Label gotcha:** Tempo's generated metrics label the service `service`. Loki labels it
 > `service_name`. The two genuinely differ — `sum by (service_name)` on span-metrics silently
 > collapses every service into one unlabeled series instead of erroring.
+
+### High memory / CPU — "which function is responsible?"
+
+This one needs a different tool, and it's worth understanding why. Metrics **cannot** answer it:
+
+```promql
+v8js_memory_heap_used_bytes{service_name="checkout-api", v8js_heap_space_name="old_space"}
+```
+
+is a per-process gauge labelled by V8 heap space. There is no function, no request, no trace id on
+it — memory is sampled from the process, not measured per call. Traces can't answer it either: a
+span records elapsed *time*, not allocation. So no amount of correlation gets you from a heap graph
+to a culprit function.
+
+**Pyroscope** samples the call stack at allocation time, which is what actually answers it.
+
+1. **Grafana → Explore → Pyroscope**, pick the service and profile type:
+   - `memory:inuse_space:bytes:inuse_space:bytes` — live heap by function *(start here for leaks)*
+   - `memory:inuse_objects:count:inuse_space:bytes` — object counts
+   - `wall:wall:nanoseconds:wall:nanoseconds` — where wall-clock time goes
+2. Read the flame graph: width = bytes retained, and each frame is `file:function:line`.
+3. Compare two time windows (baseline vs. incident) to see what *grew* — a leak shows as a frame
+   that widens over time, which is far more legible than one absolute snapshot.
+
+Confirmed working — a real heap profile resolves to frames like:
+
+```
+168501 KB  node_modules/@datadog/pprof/out/src/time-profiler.js:stop:115
+ 30785 KB  node_modules/iconv-lite/encodings/dbcs-data.js:(anonymous):L1
+```
+
+**From a trace:** open a span in Tempo and use the profile link. It correlates by *service and the
+span's time window*, not by exact span — per-span profile linking needs a span-profiles
+integration, and there is no published Node.js package for it (the `otelpyroscope` package is
+Go-only). It still answers "what was this service allocating while that request was slow?".
+
+**Enabling it in a service** — opt in with one env var:
+
+```bash
+PYROSCOPE_SERVER_ADDRESS=http://localhost:4040 npm run -w @digiform/microservices-demo start:payments
+```
+
+`src/profiling.ts` in the microservices example is the reference: it imports the SDK dynamically
+inside a `try/catch`, so a missing native prebuild logs a warning instead of taking the service
+down. Profiling is a diagnostic, never a hard dependency.
+
+> **VS Code gotcha:** the integrated terminal sets `ELECTRON_RUN_AS_NODE=1`, which makes
+> `node-gyp-build` look for an *Electron* prebuild of the native profiler and fail with
+> "No native build was found ... runtime=electron". Launch with
+> `env -u ELECTRON_RUN_AS_NODE npm run ...`. It is not a Node-version incompatibility.
+
+### High memory / CPU — "which function is responsible?"
+
+This needs a different tool, and it's worth understanding why. Metrics **cannot** answer it:
+
+```promql
+v8js_memory_heap_used_bytes{service_name="checkout-api", v8js_heap_space_name="old_space"}
+```
+
+is a per-process gauge labelled by V8 heap space. There is no function, no request, no trace id on
+it — memory is sampled from the process, not measured per call. Traces can't answer it either: a
+span records elapsed *time*, not allocation. So no amount of correlation gets you from a heap graph
+to a culprit function.
+
+**Pyroscope** samples the call stack at allocation time, which is what actually answers it.
+
+1. **Grafana → Explore → Pyroscope**, pick the service and profile type:
+   - `memory:inuse_space:bytes:inuse_space:bytes` — live heap by function *(start here for leaks)*
+   - `memory:inuse_objects:count:inuse_space:bytes` — object counts
+   - `wall:wall:nanoseconds:wall:nanoseconds` — where wall-clock time goes
+2. Read the flame graph: width = bytes retained, and each frame is `file:function:line`.
+3. Compare two time windows (baseline vs. incident) to see what *grew*. A leak shows up as a frame
+   that widens over time, which is far more legible than one absolute snapshot.
+
+Verified working — a real heap profile resolves to frames like:
+
+```
+168501 KB  node_modules/@datadog/pprof/out/src/time-profiler.js:stop:115
+ 30785 KB  node_modules/iconv-lite/encodings/dbcs-data.js:(anonymous):L1
+```
+
+**From a trace:** open a span in Tempo and use the profile link. It correlates by *service and the
+span's time window*, not by exact span — per-span linking needs a span-profiles integration, and
+there is no published Node.js package for it (`otelpyroscope` is Go-only). It still answers "what
+was this service allocating while that request was slow?".
+
+**Enabling it in a service** — opt in with one env var:
+
+```bash
+PYROSCOPE_SERVER_ADDRESS=http://localhost:4040 npm run -w @digiform/microservices-demo start:payments
+```
+
+`examples/microservices/src/profiling.ts` is the reference implementation: it imports the SDK
+dynamically inside a `try/catch`, so a missing native prebuild logs a warning instead of taking the
+service down. Profiling is a diagnostic, never a hard dependency.
+
+> **VS Code gotcha:** the integrated terminal sets `ELECTRON_RUN_AS_NODE=1`, which makes
+> `node-gyp-build` hunt for an *Electron* prebuild of the native profiler and fail with
+> "No native build was found … runtime=electron". Launch with
+> `env -u ELECTRON_RUN_AS_NODE npm run ...`. It is not a Node-version incompatibility.
 
 ### 5. Practise it
 
@@ -401,6 +514,10 @@ curl -XPOST localhost:8083/admin/failure-mode -H 'content-type: application/json
 | RED / service-graph panels empty | Needs ~30s of fresh traffic after a stack restart. |
 | Everything `Exited (255)` | Docker/WSL restarted. `docker compose up -d`. |
 | `EADDRINUSE` on a port `ss` says is free | On WSL2 the port space is shared with Windows. Probe with a throwaway `net.createServer()` script. |
+| Exemplar dots never appear on a metric panel | `max_global_exemplars_per_user` is 0 in Mimir (drops them), or the datasource expects `trace_id` instead of `traceID`. Both must be right. |
+| Profiler fails: "No native build … runtime=electron" | `ELECTRON_RUN_AS_NODE=1` (VS Code terminal). Run `env -u ELECTRON_RUN_AS_NODE npm run ...`. |
+| No profiles in Pyroscope | Is `PYROSCOPE_SERVER_ADDRESS` set? Profiling is opt-in, and start-up logs `[profiling] pyroscope started: …` when active. |
+| Pyroscope query returns an empty flame graph | Wrong profile type id. The Node SDK emits `memory:inuse_space:bytes:inuse_space:bytes`; the Go-style `…:space:bytes` matches nothing. |
 
 ---
 

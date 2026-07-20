@@ -1,6 +1,6 @@
 # observability-baseline
 
-A local LGTM (Loki, Grafana, Tempo, Mimir) + OpenTelemetry Collector stack for building and testing observability-enabled applications. Mirrors production topology.
+A local LGTM (Loki, Grafana, Tempo, Mimir) + Pyroscope + OpenTelemetry Collector stack for building and testing observability-enabled applications. Mirrors production topology.
 
 Contents:
 1. **This repo's `docker-compose`** — the backend stack
@@ -37,6 +37,8 @@ App (OTLP :4318 HTTP or :4317 gRPC)
         ├─ traces  ──► Tempo  (internal)
         └─ metrics ──► Mimir  :9009
 
+App (Pyroscope SDK) ──► Pyroscope :4040   profiles (which function allocates)
+
 Tempo metrics generator ──► Mimir  (span-metrics + service-graphs)
 Grafana :3000 ────────────► Loki, Tempo, Mimir
 ```
@@ -52,6 +54,7 @@ Grafana :3000 ────────────► Loki, Tempo, Mimir
 | 4318 | OTel Collector (OTLP HTTP) |
 | 8888 | OTel Collector (self-metrics) |
 | 9009 | Mimir |
+| 4040 | Pyroscope (profiles) |
 | 8080 / 8082 / 8083 | microservices example (checkout-api / orders / payments) |
 
 ## Send some test data

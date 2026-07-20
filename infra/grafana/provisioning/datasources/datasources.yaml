@@ -38,6 +38,17 @@ datasources:
         filterBySpanID: false
       tracesToMetrics:
         datasourceUid: prometheus
+      # Trace → profile. NB: this correlates by service + the span's time
+      # window, not by exact span — per-span profile linking needs a span-
+      # profiles integration, which has no published Node.js package (the
+      # otelpyroscope package is Go-only). Still enough to answer "what was
+      # this service allocating while that request was slow?".
+      tracesToProfiles:
+        datasourceUid: pyroscope
+        profileTypeId: 'memory:inuse_space:bytes:inuse_space:bytes'
+        tags:
+          - key: service.name
+            value: service_name
       nodeGraph:
         enabled: true
       lokiSearch:
@@ -46,6 +57,13 @@ datasources:
         hide: false
       streamingEnabled:
         search: true
+
+  - name: Pyroscope
+    uid: pyroscope
+    type: grafana-pyroscope-datasource
+    access: proxy
+    url: http://pyroscope:4040
+    editable: true
 
   - name: prometheus
     uid: prometheus
@@ -60,6 +78,8 @@ datasources:
       manageAlerts: false
       prometheusType: Mimir
       prometheusVersion: 3.0.0
+      # Tempo's metrics generator names the exemplar label `traceID` (camelCase),
+      # not `trace_id`. A mismatch here yields a silently dead exemplar link.
       exemplarTraceIdDestinations:
-        - name: trace_id
+        - name: traceID
           datasourceUid: tempo
