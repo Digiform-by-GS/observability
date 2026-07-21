@@ -70,6 +70,17 @@ limits:
   # Tempo's metrics generator sends (`send_exemplars: true` in tempo-config.yaml).
   # Without this, the Grafana "metric → example trace" link can never fire.
   max_global_exemplars_per_user: 100000
+  # Cardinality guardrails. Nothing previously stood between a labelling mistake
+  # and an OOM. Three things newly arm that risk: per-queue RabbitMQ metrics,
+  # un-templated HTTP span names (use otelchi/otelgin, not bare otelhttp), and
+  # `resource_to_telemetry_conversion: enabled` in the collector, which promotes
+  # EVERY resource attribute to a metric label.
+  # A limit that rejects loudly beats silent unbounded growth: writes over the
+  # cap fail with HTTP 4xx and surface in the collector log, rather than
+  # quietly eating Mimir's memory.
+  max_global_series_per_user: 150000
+  max_global_series_per_metric: 20000
+  max_label_names_per_series: 30
 
 usage_stats:
   enabled: false

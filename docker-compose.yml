@@ -61,6 +61,10 @@ services:
     image: otel/opentelemetry-collector-contrib:0.154.0
     container_name: otel-collector
     command: ["--config=/etc/otel-collector-config.yaml"]
+    environment:
+      # Referenced as ${env:DEPLOYMENT_ENVIRONMENT} in the collector config.
+      # Override per environment; the collector fails to start if it is unset.
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-dev}
     volumes:
       - ./infra/otel-collector/config.yaml:/etc/otel-collector-config.yaml:ro
     ports:

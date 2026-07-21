@@ -37,6 +37,10 @@ storage_config:
 compactor:
   working_directory: /loki/compactor
   delete_request_store: filesystem
+  # Without retention_enabled the `retention_period: 168h` below is inert —
+  # the compactor never deletes anything and disk grows unbounded.
+  retention_enabled: true
+  compaction_interval: 10m
 
 limits_config:
   metric_aggregation_enabled: true

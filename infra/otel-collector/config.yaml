@@ -8,13 +8,18 @@ receivers:
 
 processors:
   memory_limiter:
+    # Raised from 512: the infra receivers (prometheus/redis/rabbitmq) added in
+    # phase 4 share this process with the OTLP pipelines.
     check_interval: 1s
-    limit_mib: 512
-    spike_limit_mib: 128
+    limit_mib: 1024
+    spike_limit_mib: 256
   resource:
     attributes:
+      # `insert` (not upsert) so a value the app already set wins. Hardcoding
+      # this meant infra metrics said `dev` while app metrics said `staging`,
+      # and every environment-filtered dashboard silently showed half the data.
       - key: deployment.environment
-        value: dev
+        value: ${env:DEPLOYMENT_ENVIRONMENT}
         action: insert
   batch:
     timeout: 5s

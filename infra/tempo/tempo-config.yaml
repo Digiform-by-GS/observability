@@ -18,7 +18,11 @@ ingester:
 
 compactor:
   compaction:
-    block_retention: 1h
+    # Must match Loki's retention (168h). At the old 1h a trace was deleted
+    # before you could investigate it, and event-driven flows — retries, DLQ
+    # replays — routinely exceed an hour, so exactly the traces worth keeping
+    # were the ones being dropped.
+    block_retention: 168h
 
 metrics_generator:
   registry:
