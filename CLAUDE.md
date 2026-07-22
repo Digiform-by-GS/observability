@@ -9,8 +9,10 @@ This file provides architectural context for future Claude Code sessions working
 A monorepo that provides:
 1. **LGTM + OTel Collector stack** — runs locally via Docker Compose; mirrors production topology
 2. **`@digiform/observability` wrapper package** — bundles OTel SDK + exporters so devs install one package
-3. **`examples/nodejs-sample`** — single Express app demonstrating the wrapper end-to-end
-4. **`examples/microservices`** — three chained services demonstrating cross-service tracing and blast-radius analysis
+3. **`observability-go` module** — the Go counterpart, sharing the same env-var contract
+4. **`examples/nodejs-sample`** — single Express app demonstrating the wrapper end-to-end
+5. **`examples/microservices`** — three chained services demonstrating cross-service tracing and blast-radius analysis
+6. **`examples/go-service`** — Go example, containerised on the `obs` network
 
 All four are complete and verified end-to-end against the running stack (2026-07-20): traces, metrics, and
 trace-correlated logs all land in Tempo / Mimir / Loki and render in Grafana.
@@ -28,6 +30,8 @@ trace-correlated logs all land in Tempo / Mimir / Loki and render in Grafana.
 | Pyroscope | `grafana/pyroscope:2.1.1` |
 | OTel Collector Contrib | `otel/opentelemetry-collector-contrib:0.154.0` |
 | Node.js | 20 LTS minimum (dev machine runs 24.11.0) |
+| Go | **1.25+ required** by OTel v1.44. Dev machine runs 1.26.5 from `~/.local/go`, *not* the apt-installed 1.22 at `/usr/bin/go` |
+| OTel Go SDK | `go.opentelemetry.io/otel` v1.44.0 |
 | TypeScript | 5.x |
 
 Docker Hub only retains recent stable `opentelemetry-collector-contrib` tags — older pins (0.150–0.153)
@@ -97,6 +101,25 @@ Because trace_id is structured metadata and **not** in the log body, the Grafana
 `matcherType: label` / `matcherRegex: trace_id` for its "View Trace" derived field. A body regex will
 never match.
 
+### Go services — `packages/observability-go/`
+
+Go's correlation story is *simpler* than Node's — no worker-thread hazard, because `slog.Handler.Handle`
+receives `ctx` directly — but it has two traps of its own:
+
+1. **Go's default text-map propagator is a no-op.** Without `otel.SetTextMapPropagator`, every service
+   starts a fresh trace: spans look individually correct, nothing ever joins up, and nothing errors.
+   `New()` sets it, and `TestNewSetsTraceContextPropagator` guards it (verified to fail when removed).
+2. **`logger.Info(...)` compiles, runs, and silently produces an uncorrelated log.** Only
+   `InfoContext(ctx, ...)` carries the span. `.golangci.yml` enables `sloglint` with `context: all`
+   for exactly this — **not optional**; it caught real defects the day it landed.
+
+Use `otelchi`/`otelgin` on servers, never bare `otelhttp`: framework wrappers name spans after the
+route *template*, whereas raw paths make `span_name` unbounded and inflate span-metrics cardinality
+until Mimir rejects the writes. On clients, `otelhttp.NewTransport` is what injects `traceparent`.
+
+Go log keys are **snake_case** (`order_id`) to match Loki's resource-attribute spelling; the Node
+examples emit camelCase (`orderId`), so a query spanning both stacks must handle both.
+
 ### Signal-specific label gotchas
 - Tempo's metrics generator labels spanmetrics/service-graph series **`service`**, *not* `service_name`.
   Querying `sum by (service_name)` silently collapses every service into one unlabeled series.
@@ -129,11 +152,14 @@ observability-baseline/
 │               ├── dashboard-provider.yaml
 │               ├── default.json               # RED metrics + logs dashboard
 │               └── blast-radius.json          # incident: cause vs. impact
+├── .golangci.yml                 # sloglint context:all — REQUIRED, see Go section
 ├── packages/
-│   └── observability/            # @digiform/observability wrapper
+│   ├── observability/            # @digiform/observability wrapper (Node)
+│   └── observability-go/         # observability-go module (Go)
 └── examples/
     ├── nodejs-sample/            # single Express demo app
-    └── microservices/            # checkout-api → orders → payments chain
+    ├── microservices/            # checkout-api → orders → payments chain
+    └── go-service/               # Go example, containerised on `obs`
 ```
 
 `docker-compose.yml` deliberately has **no healthchecks** on Loki/Tempo/Mimir: those images are
@@ -166,6 +192,13 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3100/ready   # Loki  (
 # Wrapper: build + test after editing packages/observability
 npm run -w @digiform/observability build && npm run -w @digiform/observability test
 
+# Go module: test + lint (the lint is load-bearing — see the Go section)
+cd packages/observability-go && go test ./... && golangci-lint run --config ../../.golangci.yml ./...
+
+# Go example service (containerised on `obs`, reaches the collector by DNS)
+docker compose build go-service && docker compose up -d go-service
+curl localhost:8090/work
+
 # Single sample app
 OTEL_SERVICE_NAME=nodejs-sample npm run -w @digiform/nodejs-sample start
 
@@ -194,6 +227,7 @@ First boot of any app from `/mnt/d` takes ~90–175s (WSL2 9P filesystem bridge)
 | 8888 | OTel Collector | Self-metrics (Prometheus) |
 | 9009 | Mimir | Prometheus-compatible API |
 | 4040 | Pyroscope | Continuous profiling ingest + UI |
+| 8090 | go-service | Go example (containerised on `obs`) |
 | 8080 | checkout-api | microservices demo — edge service |
 | 8082 | orders | microservices demo — middle service |
 | 8083 | payments | microservices demo — leaf + fault injection |
@@ -233,6 +267,10 @@ nothing. Probe bindability with a throwaway `net.createServer()` script rather t
 | Everything `Exited (255)` after a reboot | Docker Desktop/WSL restarted; just `docker compose up -d` again |
 | Service-graph / spanmetrics panels empty | Tempo's generator needs ~30s of *fresh* traffic after a stack restart before series reappear |
 | `EADDRINUSE` on a port `ss` says is free | WSL2 shares the port space with Windows — see the Port Map note on 8081 |
+| Go: each service is its own single-span trace | The global propagator was not set (Go's default is a no-op). `observability.New()` must run before any instrumented call |
+| Go: logs in Loki with no `trace_id` | A bare `slog.Info` was used instead of `InfoContext(ctx, ...)`. Run `golangci-lint` — `sloglint` catches it; the compiler will not |
+| Go: `go build` fails on OTel imports | Wrong toolchain. OTel v1.44 needs Go ≥ 1.25; check `go version` resolves to `~/.local/go`, not `/usr/bin/go` (1.22) |
+| Go: every OTLP export 404s | `WithEndpoint` used instead of `WithEndpointURL`, giving `/v1/traces/v1/traces` — the SDK appends the suffix itself |
 
 ---
 

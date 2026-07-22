@@ -1,0 +1,44 @@
+version: "2"
+
+linters:
+  enable:
+    # THE important one for this repo. slog's Context-suffixed methods are what
+    # carry the active span into the log record: logger.InfoContext(ctx, ...)
+    # produces a log with trace_id, while logger.Info(...) compiles, runs, and
+    # silently produces an uncorrelated log that reaches Loki with no way back
+    # to its trace. Nothing at runtime tells you this happened — the log simply
+    # can't be joined to anything. This lint is the only thing standing between
+    # you and a slow drift into uncorrelated logging.
+    #
+    # Retrofitting Context suffixes across a grown codebase is miserable, which
+    # is why this is enabled from the first commit rather than "later".
+    - sloglint
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+  settings:
+    sloglint:
+      # Reject any slog call that does not take a context.
+      context: all
+      # Require key-value pairs be slog.Attr (slog.String("k", v)) rather than
+      # loose alternating args — the loose form silently drops a value if the
+      # count is odd.
+      attr-only: true
+      # Keys as snake_case so Go attributes match the Loki structured-metadata
+      # spelling used by the Node services and the dashboards.
+      key-naming-case: snake
+
+  exclusions:
+    rules:
+      # Tests may log without context while exercising handlers directly.
+      - path: _test\.go
+        linters:
+          - sloglint
+          - errcheck
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

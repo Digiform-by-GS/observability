@@ -13,3 +13,9 @@ Thumbs.db
 
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
+
+# Go build artifacts. `go build ./...` in a main package drops a binary named
+# after the module directory — 23MB of it, right next to the source.
+/examples/go-service/go-service-example
+*.test
+*.out

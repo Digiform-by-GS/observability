@@ -99,3 +99,27 @@ services:
         condition: service_started
       mimir:
         condition: service_started
+
+  # Example Go service. Runs on the `obs` network (not the host) so it reaches
+  # the collector by DNS name — and so the redis/rabbitmq receivers added in
+  # later phases can reach their targets the same way. Build it explicitly:
+  #   docker compose build go-service && docker compose up -d go-service
+  go-service:
+    build:
+      context: .
+      dockerfile: examples/go-service/Dockerfile
+    image: digiform/go-service:dev
+    container_name: go-service
+    environment:
+      OTEL_SERVICE_NAME: go-service
+      OTEL_SERVICE_VERSION: 0.1.0
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-dev}
+      # Container DNS, not localhost — this is the whole point of containerising.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      PORT: "8090"
+    ports:
+      - "8090:8090"
+    networks: [obs]
+    depends_on:
+      otel-collector:
+        condition: service_started
