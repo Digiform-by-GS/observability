@@ -131,6 +131,12 @@ examples emit camelCase (`orderId`), so a query spanning both stacks must handle
   Grafana datasource. Either wrong = a dead link with no error anywhere.
 - Pyroscope's Node SDK emits profile type `memory:inuse_space:bytes:inuse_space:bytes`. The Go-style
   `memory:inuse_space:bytes:space:bytes` returns an empty flame graph, not an error.
+- **Series growth is dominated by span-metrics histograms, not by receivers.** Adding Redis +
+  Postgres took Mimir from 48 → 709 series, but the `redis`/`postgresql` receivers accounted for
+  only ~34 each. 52% came from Tempo's generator (`traces_spanmetrics_latency_bucket` alone = 240),
+  because every *new span name* multiplies by the histogram bucket count — and instrumenting a
+  client library introduces many (`sql.conn.query`, `sql.rows`, `incr`, `expire`, …). Budget for
+  span names, not for receivers.
 
 ---
 
@@ -228,6 +234,8 @@ First boot of any app from `/mnt/d` takes ~90–175s (WSL2 9P filesystem bridge)
 | 9009 | Mimir | Prometheus-compatible API |
 | 4040 | Pyroscope | Continuous profiling ingest + UI |
 | 8090 | go-service | Go example (containerised on `obs`) |
+| 6379 | Redis | cache — monitored by the collector's `redis` receiver |
+| 5432 | Postgres | database — monitored by the `postgresql` receiver |
 | 8080 | checkout-api | microservices demo — edge service |
 | 8082 | orders | microservices demo — middle service |
 | 8083 | payments | microservices demo — leaf + fault injection |

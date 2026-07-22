@@ -30,6 +30,29 @@ OTEL_SERVICE_NAME=go-service OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
 | `/slow` | sleeps 200–500ms, logs with context |
 | `/error` | 500 + an error-level log |
 | `/work` | custom span + **instrumented self-call** |
+| `/cache` | Redis `INCR` + `EXPIRE` — nested client spans |
+| `/widgets` | one Postgres query |
+| `/widgets/slow?n=12` | **deliberate N+1** — see below |
+
+`/cache` and `/widgets*` report themselves disabled (503) if `REDIS_ADDR` / `POSTGRES_DSN` are
+unset; the service still boots. A demo that refuses to start without its cache teaches the wrong
+lesson about coupling.
+
+### `/widgets/slow` — why client spans matter
+
+It issues one query per row plus a Redis GET each, producing **~40 spans in a single request**:
+
+```
+/widgets/slow
+├── sql.conn.query   × 12
+├── sql.rows         × 12
+├── sql.conn.reset_session × 12
+└── get              × 3
+```
+
+While it runs, the `redis` and `postgresql` receivers report **perfect health** — from the server's
+point of view these are fast, correct commands. Only the client spans attribute the work back to the
+request that caused it. That is why both halves are instrumented.
 
 `/work` is the one that matters: it makes an outbound HTTP call back to
 `/healthy`, so the trace must nest as

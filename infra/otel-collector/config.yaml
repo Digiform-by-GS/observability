@@ -6,6 +6,25 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+  # Server-side Redis health: memory, evictions, hit rate, connected clients.
+  # This is the half that says "Redis itself is fine" — the other half (which
+  # endpoint is hammering it) only comes from client spans in the app.
+  redis:
+    endpoint: redis:6379
+    collection_interval: 30s
+
+  # Postgres server stats: commits/rollbacks, blocks hit vs read, table sizes.
+  # Complements otelsql's client spans and pool gauges in the app.
+  postgresql:
+    endpoint: postgres:5432
+    username: ${env:POSTGRES_USER}
+    password: ${env:POSTGRES_PASSWORD}
+    databases:
+      - ${env:POSTGRES_DB}
+    collection_interval: 30s
+    tls:
+      insecure: true
+
 processors:
   memory_limiter:
     # Raised from 512: the infra receivers (prometheus/redis/rabbitmq) added in
@@ -70,5 +89,13 @@ service:
       exporters: [otlphttp/traces]
     metrics:
       receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheusremotewrite]
+
+    # Infra metrics ride a SEPARATE pipeline from app telemetry on purpose: a
+    # stalled scrape (Redis down, Postgres slow to answer) must not apply
+    # backpressure to the OTLP pipelines carrying your application's signals.
+    metrics/infra:
+      receivers: [redis, postgresql]
       processors: [memory_limiter, resource, batch]
       exporters: [prometheusremotewrite]

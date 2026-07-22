@@ -10,8 +10,37 @@ volumes:
   tempo-data:
   mimir-data:
   pyroscope-data:
+  postgres-data:
 
 services:
+  # ---------------------------------------------------------------------------
+  # Application infrastructure (Phase 2). These are the things the app talks to,
+  # as opposed to the telemetry backends below. Both are monitored two ways:
+  # server-side health via collector receivers, and per-request impact via
+  # client spans from the app. You need both — server-side says "Redis is
+  # healthy", only client spans reveal one endpoint issuing 400 sequential GETs.
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7.4-alpine
+    container_name: redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    networks: [obs]
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks: [obs]
+
   loki:
     image: grafana/loki:3.7.1
     container_name: loki
@@ -65,6 +94,11 @@ services:
       # Referenced as ${env:DEPLOYMENT_ENVIRONMENT} in the collector config.
       # Override per environment; the collector fails to start if it is unset.
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-dev}
+      # Consumed by the postgresql receiver. Local dev credentials only — the
+      # whole stack is unauthenticated and must not be exposed off-localhost.
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
     volumes:
       - ./infra/otel-collector/config.yaml:/etc/otel-collector-config.yaml:ro
     ports:
@@ -117,9 +151,17 @@ services:
       # Container DNS, not localhost — this is the whole point of containerising.
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       PORT: "8090"
+      # Both optional: unset either one and the matching route reports itself
+      # disabled rather than the service refusing to boot.
+      REDIS_ADDR: redis:6379
+      POSTGRES_DSN: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}?sslmode=disable
     ports:
       - "8090:8090"
     networks: [obs]
     depends_on:
       otel-collector:
+        condition: service_started
+      redis:
+        condition: service_started
+      postgres:
         condition: service_started

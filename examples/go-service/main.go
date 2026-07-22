@@ -60,7 +60,20 @@ func run() error {
 	}()
 
 	log := obs.Logger()
-	srv, err := newServer(log)
+
+	// Opened after observability so the instrumentation hooks are registered
+	// before the first command or query is issued.
+	d, err := openDeps(ctx)
+	if err != nil {
+		return fmt.Errorf("open dependencies: %w", err)
+	}
+	defer func() {
+		if err := d.Close(); err != nil {
+			log.ErrorContext(context.Background(), "closing dependencies", slog.Any("error", err))
+		}
+	}()
+
+	srv, err := newServer(log, d)
 	if err != nil {
 		return err
 	}
@@ -97,7 +110,7 @@ func run() error {
 	return httpServer.Shutdown(shutdownCtx)
 }
 
-func newServer(log *slog.Logger) (http.Handler, error) {
+func newServer(log *slog.Logger, d *deps) (http.Handler, error) {
 	tracer := observability.Tracer(serviceName)
 	meter := observability.Meter(serviceName)
 
@@ -172,6 +185,8 @@ func newServer(log *slog.Logger) (http.Handler, error) {
 		log.InfoContext(ctx, "work complete", slog.Int("downstream_status", status))
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "downstreamStatus": status})
 	})
+
+	mountDataRoutes(r, d, log, requests)
 
 	return r, nil
 }
