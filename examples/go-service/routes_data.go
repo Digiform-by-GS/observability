@@ -18,7 +18,34 @@ import (
 // mountDataRoutes adds the Redis- and Postgres-backed endpoints. Each Redis
 // command and SQL query becomes a child span of the HTTP span, so a slow
 // request shows exactly which backend call cost the time.
-func mountDataRoutes(r chi.Router, d *deps, log *slog.Logger, requests metric.Int64Counter) {
+func mountDataRoutes(r chi.Router, d *deps, m *messaging, log *slog.Logger, requests metric.Int64Counter) {
+	// /publish sends an order to RabbitMQ. The producer span is PRODUCER-kind
+	// and lives in the HTTP request's trace; the consumer will start a separate
+	// trace linked back to it. ?fail=1 makes the consumer dead-letter it.
+	r.Post("/publish", func(w http.ResponseWriter, req *http.Request) {
+		ctx := req.Context()
+		requests.Add(ctx, 1, metric.WithAttributes(attribute.String("route", "/publish")))
+
+		if m == nil {
+			writeJSON(w, http.StatusServiceUnavailable,
+				map[string]string{"error": "rabbitmq not configured (set RABBITMQ_URL)"})
+			return
+		}
+
+		orderID := fmt.Sprintf("ord-%d", time.Now().UnixNano())
+		if req.URL.Query().Get("fail") == "1" {
+			orderID = "fail-" + orderID
+		}
+
+		if err := m.publishOrder(ctx, orderID, 42); err != nil {
+			log.ErrorContext(ctx, "publish failed", slog.Any("error", err))
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		log.InfoContext(ctx, "order published", slog.String("order_id", orderID))
+		writeJSON(w, http.StatusAccepted, map[string]any{"published": true, "order_id": orderID})
+	})
 	r.Get("/cache", func(w http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
 		requests.Add(ctx, 1, metric.WithAttributes(attribute.String("route", "/cache")))

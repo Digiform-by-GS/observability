@@ -4,6 +4,7 @@ go 1.26.5
 
 require (
 	github.com/XSAM/otelsql v0.43.0
+	github.com/rabbitmq/amqp091-go v1.13.0
 	github.com/redis/go-redis/extra/redisotel/v9 v9.21.0
 	github.com/redis/go-redis/v9 v9.21.0
 	go.opentelemetry.io/contrib/bridges/otelslog v0.19.0

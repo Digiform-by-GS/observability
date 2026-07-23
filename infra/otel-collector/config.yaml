@@ -25,6 +25,16 @@ receivers:
     tls:
       insecure: true
 
+  # RabbitMQ queue depth, message rates, consumer counts. Scrapes the MANAGEMENT
+  # HTTP API on 15672 — NOT the AMQP port 5672. This is the server-side half:
+  # "there is a backlog". The app-side message-age histogram is what tells you
+  # how stale the backlog is; queue depth alone cannot.
+  rabbitmq:
+    endpoint: http://rabbitmq:15672
+    username: ${env:RABBITMQ_USER}
+    password: ${env:RABBITMQ_PASSWORD}
+    collection_interval: 30s
+
 processors:
   memory_limiter:
     # Raised from 512: the infra receivers (prometheus/redis/rabbitmq) added in
@@ -96,6 +106,6 @@ service:
     # stalled scrape (Redis down, Postgres slow to answer) must not apply
     # backpressure to the OTLP pipelines carrying your application's signals.
     metrics/infra:
-      receivers: [redis, postgresql]
+      receivers: [redis, postgresql, rabbitmq]
       processors: [memory_limiter, resource, batch]
       exporters: [prometheusremotewrite]

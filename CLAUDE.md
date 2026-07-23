@@ -14,8 +14,10 @@ A monorepo that provides:
 5. **`examples/microservices`** — three chained services demonstrating cross-service tracing and blast-radius analysis
 6. **`examples/go-service`** — Go example, containerised on the `obs` network
 
-All four are complete and verified end-to-end against the running stack (2026-07-20): traces, metrics, and
-trace-correlated logs all land in Tempo / Mimir / Loki and render in Grafana.
+All are verified end-to-end against the running stack: traces, metrics, and trace-correlated logs land
+in Tempo / Mimir / Loki and render in Grafana. `go-service` additionally exercises Redis, Postgres, and
+event-driven RabbitMQ (publish→consume with span links). Infra monitored via collector receivers:
+`redis`, `postgresql`, `rabbitmq`.
 
 ---
 
@@ -119,6 +121,27 @@ until Mimir rejects the writes. On clients, `otelhttp.NewTransport` is what inje
 
 Go log keys are **snake_case** (`order_id`) to match Loki's resource-attribute spelling; the Node
 examples emit camelCase (`orderId`), so a query spanning both stacks must handle both.
+
+### Event-driven tracing over RabbitMQ — `packages/observability-go/amqp/`
+
+Consumers start a **new root trace with a LINK to the producer**, not a parent-child child span (see
+`consumer.go`, the `context.Background()` + `trace.WithLinks` call). Reasons: a message queued for
+hours would otherwise produce a multi-hour trace whose latency is meaningless; fan-out to N queues
+would branch one ever-growing trace instead of N clean ones; and a consume after Tempo's retention
+window would dangle off a compacted-away parent. A link degrades gracefully; parenthood does not.
+
+**Consequence you must not "fix": async edges are absent from the service graph.** Tempo's
+service-graph pairs spans *within one trace*, and with links the producer and consumer are in
+different traces — so there is no rabbitmq/queue edge in the node graph. This is correct. Switching to
+parent-child to "restore" the edge reintroduces every problem above. Build the async view from
+span-metrics instead: `sum by (span_kind, messaging_destination_name)
+(traces_spanmetrics_calls_total{span_kind=~"SPAN_KIND_PRODUCER|SPAN_KIND_CONSUMER"})`. The messaging
+dimensions come from `tempo-config.yaml` → `metrics_generator.processor.span_metrics.dimensions`
+(note: `processor`, singular — wrong nesting rejects the whole `overrides.defaults` block).
+
+The `HeaderCarrier` over `amqp091.Table` is written and unit-tested in-repo, not pulled from a
+dependency, because AMQP headers are `map[string]interface{}`: `Get` must type-assert and return `""`
+for a non-string, so a foreign producer's numeric header can't panic the consumer.
 
 ### Signal-specific label gotchas
 - Tempo's metrics generator labels spanmetrics/service-graph series **`service`**, *not* `service_name`.
@@ -236,6 +259,8 @@ First boot of any app from `/mnt/d` takes ~90–175s (WSL2 9P filesystem bridge)
 | 8090 | go-service | Go example (containerised on `obs`) |
 | 6379 | Redis | cache — monitored by the collector's `redis` receiver |
 | 5432 | Postgres | database — monitored by the `postgresql` receiver |
+| 5672 | RabbitMQ | AMQP — what the app connects to |
+| 15672 | RabbitMQ | management API/UI — what the `rabbitmq` receiver scrapes |
 | 8080 | checkout-api | microservices demo — edge service |
 | 8082 | orders | microservices demo — middle service |
 | 8083 | payments | microservices demo — leaf + fault injection |

@@ -28,6 +28,20 @@ services:
       - "6379:6379"
     networks: [obs]
 
+  # The -management tag matters: the rabbitmq receiver scrapes the management
+  # HTTP API on 15672, NOT the AMQP port 5672. Plain `rabbitmq:4-alpine` has no
+  # management plugin and the receiver would fail every scrape.
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "5672:5672"    # AMQP — what the app connects to
+      - "15672:15672"  # management UI + API — what the collector scrapes
+    networks: [obs]
+
   postgres:
     image: postgres:17-alpine
     container_name: postgres
@@ -99,6 +113,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
       POSTGRES_DB: ${POSTGRES_DB:-app}
+      # Consumed by the rabbitmq receiver (management API on 15672).
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
     volumes:
       - ./infra/otel-collector/config.yaml:/etc/otel-collector-config.yaml:ro
     ports:
@@ -155,6 +172,7 @@ services:
       # disabled rather than the service refusing to boot.
       REDIS_ADDR: redis:6379
       POSTGRES_DSN: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}?sslmode=disable
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
     ports:
       - "8090:8090"
     networks: [obs]
@@ -164,4 +182,6 @@ services:
       redis:
         condition: service_started
       postgres:
+        condition: service_started
+      rabbitmq:
         condition: service_started

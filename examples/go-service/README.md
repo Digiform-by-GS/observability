@@ -33,6 +33,31 @@ OTEL_SERVICE_NAME=go-service OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
 | `/cache` | Redis `INCR` + `EXPIRE` — nested client spans |
 | `/widgets` | one Postgres query |
 | `/widgets/slow?n=12` | **deliberate N+1** — see below |
+| `POST /publish` | publish an order to RabbitMQ; `?fail=1` dead-letters it |
+
+### RabbitMQ — publish→consume with span links
+
+`POST /publish` sends an order to the `orders` queue; a background consumer processes it. **They are
+two separate traces joined by a link**, not one parent-child trace — see
+[`observability-go/amqp`](../../packages/observability-go/amqp/) for why (queued messages would
+otherwise make multi-hour traces, fan-out would branch endlessly, and consumes past Tempo's retention
+would dangle).
+
+To see it: publish a few, then in **Explore → Tempo** open an `orders process` trace — its consumer
+span carries a link back to the `POST /publish` trace. `?fail=1` makes the handler error, the message
+nacks to `orders.dlq`, and the dead-letter log records the origin trace id.
+
+Because they are separate traces, **the `orders` flow does not appear as a service-graph edge** — that
+is correct. Query the async flow from span-metrics instead:
+
+```promql
+sum by (span_kind, messaging_destination_name) (
+  traces_spanmetrics_calls_total{span_kind=~"SPAN_KIND_PRODUCER|SPAN_KIND_CONSUMER"}
+)
+```
+
+`messaging_message_age_seconds` (publish→consume latency) is the metric queue depth cannot give you:
+depth says there's a backlog, age says how stale the data your consumers are acting on is.
 
 `/cache` and `/widgets*` report themselves disabled (503) if `REDIS_ADDR` / `POSTGRES_DSN` are
 unset; the service still boots. A demo that refuses to start without its cache teaches the wrong

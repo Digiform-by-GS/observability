@@ -73,7 +73,27 @@ func run() error {
 		}
 	}()
 
-	srv, err := newServer(log, d)
+	mq, err := openMessaging(log)
+	if err != nil {
+		return fmt.Errorf("open messaging: %w", err)
+	}
+	defer func() {
+		if err := mq.Close(); err != nil {
+			log.ErrorContext(context.Background(), "closing messaging", slog.Any("error", err))
+		}
+	}()
+
+	// Run the consumer loop alongside the HTTP server. It stops when ctx is
+	// cancelled by the signal handler.
+	if mq != nil {
+		go func() {
+			if err := mq.consume(ctx); err != nil {
+				log.ErrorContext(ctx, "consumer loop stopped", slog.Any("error", err))
+			}
+		}()
+	}
+
+	srv, err := newServer(log, d, mq)
 	if err != nil {
 		return err
 	}
@@ -110,7 +130,7 @@ func run() error {
 	return httpServer.Shutdown(shutdownCtx)
 }
 
-func newServer(log *slog.Logger, d *deps) (http.Handler, error) {
+func newServer(log *slog.Logger, d *deps, m *messaging) (http.Handler, error) {
 	tracer := observability.Tracer(serviceName)
 	meter := observability.Meter(serviceName)
 
@@ -186,7 +206,7 @@ func newServer(log *slog.Logger, d *deps) (http.Handler, error) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "downstreamStatus": status})
 	})
 
-	mountDataRoutes(r, d, log, requests)
+	mountDataRoutes(r, d, m, log, requests)
 
 	return r, nil
 }

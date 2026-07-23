@@ -50,6 +50,23 @@ overrides:
     metrics_generator:
       processors: [service-graphs, span-metrics, local-blocks]
       generate_native_histograms: both
+      # Add messaging attributes as span-metrics dimensions so the async flow is
+      # queryable even though it does NOT appear as service-graph edges.
+      #
+      # IMPORTANT — the service graph pairs spans WITHIN ONE TRACE. Producers and
+      # consumers are in separate traces (span links, by design — see the amqp
+      # package), so RabbitMQ edges are STRUCTURALLY ABSENT from the node graph.
+      # This is correct, not broken. Do not "fix" it by switching the consumer to
+      # parent-child: that reintroduces unbounded-duration traces, fan-out
+      # branching, and retention fragments. Build the async view from
+      # span-metrics filtered to span_kind=SPAN_KIND_PRODUCER|SPAN_KIND_CONSUMER
+      # and the dimensions below.
+      processor:
+        span_metrics:
+          dimensions:
+            - messaging.system
+            - messaging.destination.name
+            - messaging.operation.type
 
 usage_report:
   reporting_enabled: false
