@@ -19,9 +19,18 @@ import (
 // by brokers and shovels, so age is tracked in an explicit header instead.
 const PublishedAtHeader = "x-published-at-unix-nano"
 
+// Channel is the slice of *amqp091.Channel the publisher needs. Taking an
+// interface rather than the concrete type keeps the header-injection logic
+// testable without a live broker — a fake channel can capture what was
+// published and assert traceparent landed in the headers. *amqp091.Channel
+// satisfies this as-is.
+type Channel interface {
+	PublishWithContext(ctx context.Context, exchange, key string, mandatory, immediate bool, msg amqp091.Publishing) error
+}
+
 // Publisher wraps an AMQP channel with tracing and metrics.
 type Publisher struct {
-	ch     *amqp091.Channel
+	ch     Channel
 	tracer trace.Tracer
 
 	published metric.Int64Counter
@@ -29,7 +38,7 @@ type Publisher struct {
 }
 
 // NewPublisher instruments an existing channel.
-func NewPublisher(ch *amqp091.Channel) (*Publisher, error) {
+func NewPublisher(ch Channel) (*Publisher, error) {
 	meter := otel.Meter(instrumentationName)
 
 	published, err := meter.Int64Counter("messaging.publish.messages",

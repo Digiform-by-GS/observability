@@ -37,11 +37,15 @@ receivers:
 
 processors:
   memory_limiter:
-    # Raised from 512: the infra receivers (prometheus/redis/rabbitmq) added in
-    # phase 4 share this process with the OTLP pipelines.
+    # Soft limit kept BELOW the container's mem_limit (512 MiB in compose) so
+    # this graceful limiter — which starts refusing and forcing GC — trips
+    # before the kernel OOM killer does. 384 is ample for this workload (a few
+    # low-rate services plus the redis/postgres/rabbitmq receivers); the earlier
+    # 1024 was over-provisioned and, on a memory-tight host, would have let the
+    # container OOM before the limiter ever engaged.
     check_interval: 1s
-    limit_mib: 1024
-    spike_limit_mib: 256
+    limit_mib: 384
+    spike_limit_mib: 96
   resource:
     attributes:
       # `insert` (not upsert) so a value the app already set wins. Hardcoding

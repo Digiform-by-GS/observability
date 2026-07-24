@@ -49,10 +49,10 @@ func TestCarrierRoundTripsTraceContext(t *testing.T) {
 // consumer — it should simply look like no trace context is present.
 func TestCarrierGetToleratesNonStringValues(t *testing.T) {
 	headers := HeaderCarrier{
-		"traceparent": 42,               // wrong type entirely
-		"tracestate":  nil,              // nil value
-		"baggage":     []byte("k=v"),    // byte slice, which some clients emit
-		"ok":          "plain-string",   //nolint:gofmt // aligned for readability
+		"traceparent": 42,             // wrong type entirely
+		"tracestate":  nil,            // nil value
+		"baggage":     []byte("k=v"),  // byte slice, which some clients emit
+		"ok":          "plain-string", //nolint:gofmt // aligned for readability
 	}
 
 	for _, tc := range []struct{ key, want string }{

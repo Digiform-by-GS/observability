@@ -23,10 +23,20 @@ services:
   redis:
     image: redis:7.4-alpine
     container_name: redis
+    mem_limit: 128m
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
       - "6379:6379"
     networks: [obs]
+    # Unlike the distroless LGTM images, these app-infra images ship a shell,
+    # so a healthcheck works — and go-service depends on service_healthy so it
+    # doesn't race ahead of a not-yet-listening dependency on a cold start.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   # The -management tag matters: the rabbitmq receiver scrapes the management
   # HTTP API on 15672, NOT the AMQP port 5672. Plain `rabbitmq:4-alpine` has no
@@ -34,6 +44,7 @@ services:
   rabbitmq:
     image: rabbitmq:4-management-alpine
     container_name: rabbitmq
+    mem_limit: 640m
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
@@ -41,10 +52,21 @@ services:
       - "5672:5672"    # AMQP — what the app connects to
       - "15672:15672"  # management UI + API — what the collector scrapes
     networks: [obs]
+    healthcheck:
+      # check_port_connectivity, NOT ping: `ping` confirms the Erlang node is up,
+      # but the AMQP listener on 5672 starts slightly later, so a consumer that
+      # dials on ping-success still gets "connection refused". This checks the
+      # ports are actually accepting.
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
 
   postgres:
     image: postgres:17-alpine
     container_name: postgres
+    mem_limit: 256m
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
@@ -54,10 +76,17 @@ services:
     ports:
       - "5432:5432"
     networks: [obs]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   loki:
     image: grafana/loki:3.7.1
     container_name: loki
+    mem_limit: 384m
     command: ["-config.file=/etc/loki/loki-config.yaml"]
     volumes:
       - ./infra/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
@@ -69,6 +98,7 @@ services:
   tempo:
     image: grafana/tempo:2.10.5
     container_name: tempo
+    mem_limit: 512m
     command: ["-config.file=/etc/tempo/tempo-config.yaml"]
     volumes:
       - ./infra/tempo/tempo-config.yaml:/etc/tempo/tempo-config.yaml:ro
@@ -80,6 +110,7 @@ services:
   mimir:
     image: grafana/mimir:3.0.6
     container_name: mimir
+    mem_limit: 512m
     command: ["-config.file=/etc/mimir/mimir-config.yaml"]
     volumes:
       - ./infra/mimir/mimir-config.yaml:/etc/mimir/mimir-config.yaml:ro
@@ -94,6 +125,7 @@ services:
   pyroscope:
     image: grafana/pyroscope:2.1.1
     container_name: pyroscope
+    mem_limit: 384m
     volumes:
       - pyroscope-data:/data
     ports:
@@ -103,6 +135,7 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.154.0
     container_name: otel-collector
+    mem_limit: 512m
     command: ["--config=/etc/otel-collector-config.yaml"]
     environment:
       # Referenced as ${env:DEPLOYMENT_ENVIRONMENT} in the collector config.
@@ -134,6 +167,7 @@ services:
   grafana:
     image: grafana/grafana:13.0.1
     container_name: grafana
+    mem_limit: 320m
     environment:
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
     volumes:
@@ -161,6 +195,7 @@ services:
       dockerfile: examples/go-service/Dockerfile
     image: digiform/go-service:dev
     container_name: go-service
+    mem_limit: 160m
     environment:
       OTEL_SERVICE_NAME: go-service
       OTEL_SERVICE_VERSION: 0.1.0
@@ -179,9 +214,12 @@ services:
     depends_on:
       otel-collector:
         condition: service_started
+      # service_healthy, not service_started: these must be accepting
+      # connections before go-service dials them, or openDeps/openMessaging
+      # fail fatally on a cold start (RabbitMQ alone takes ~20s to be ready).
       redis:
-        condition: service_started
+        condition: service_healthy
       postgres:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
-        condition: service_started
+        condition: service_healthy

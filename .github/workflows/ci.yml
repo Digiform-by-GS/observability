@@ -1,0 +1,82 @@
+name: CI
+
+# Runs the test suites and linters that this repo relies on as regression
+# guards — the no-op-propagator test, the span-links test, sloglint, the
+# log-correlation test. They only guard anything if they actually run, which is
+# the entire point of this workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: Node (@digiform/observability)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Build wrapper
+        run: npm run -w @digiform/observability build
+      - name: Test wrapper (vitest)
+        run: npm run -w @digiform/observability test
+      - name: Typecheck wrapper
+        run: npm run -w @digiform/observability typecheck
+      - name: Typecheck examples
+        run: |
+          npm run -w @digiform/nodejs-sample typecheck
+          npm run -w @digiform/microservices-demo typecheck
+
+  go:
+    name: Go (observability-go + go-service)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # OTel v1.44 requires Go >= 1.25 (see CLAUDE.md).
+          go-version: "1.26"
+          cache-dependency-path: |
+            packages/observability-go/go.sum
+            examples/go-service/go.sum
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l packages/observability-go examples/go-service)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: Test module
+        working-directory: packages/observability-go
+        run: go test -race ./...
+
+      - name: Build + test example
+        working-directory: examples/go-service
+        run: |
+          go build ./...
+          go test -race ./...
+
+      # sloglint (context:all) lives in .golangci.yml and is load-bearing, not
+      # stylistic — it catches uncorrelated logs the compiler accepts. Lint both
+      # modules; they are separate go.mod roots.
+      - name: Lint module
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
+          working-directory: packages/observability-go
+          args: --config ${{ github.workspace }}/.golangci.yml
+
+      - name: Lint example
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
+          working-directory: examples/go-service
+          args: --config ${{ github.workspace }}/.golangci.yml
