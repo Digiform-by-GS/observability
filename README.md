@@ -81,5 +81,7 @@ docker compose up -d
 
 - **[`GUIDE.md`](./GUIDE.md)** — start here. Quick Start, developer guide (instrumenting a service),
   operations guide (running the stack), and the incident playbook for "what's impacted?"
+- [`deployment_guide.md`](./deployment_guide.md) — deploying to Kubernetes: a blueprint grounded in
+  the working compose configs, plus the settings that silently break correlation if you get them wrong
 - [`packages/observability/README.md`](./packages/observability/README.md) — full API reference
 - [`CLAUDE.md`](./CLAUDE.md) — architecture, design decisions, component versions
