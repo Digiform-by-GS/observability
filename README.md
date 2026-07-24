@@ -79,8 +79,10 @@ docker compose up -d
 
 ## Documentation
 
-- **[`GUIDE.md`](./GUIDE.md)** — start here. Quick Start, developer guide (instrumenting a service),
-  operations guide (running the stack), and the incident playbook for "what's impacted?"
+- **[`GUIDE.md`](./GUIDE.md)** — start here. Quick Start, operations guide (running the stack), and
+  the incident playbook for "what's impacted?"
+- [`developer_guide.md`](./developer_guide.md) — instrumenting a service: install, API/method reference
+  for both the Node and Go libraries, examples, migration steps, and the versioning/compatibility matrix
 - [`deployment_guide.md`](./deployment_guide.md) — deploying to Kubernetes: a blueprint grounded in
   the working compose configs, plus the settings that silently break correlation if you get them wrong
 - [`packages/observability/README.md`](./packages/observability/README.md) — full API reference
