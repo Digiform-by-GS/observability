@@ -12,7 +12,8 @@ A monorepo that provides:
 3. **`observability-go` module** — the Go counterpart, sharing the same env-var contract
 4. **`examples/nodejs-sample`** — single Express app demonstrating the wrapper end-to-end
 5. **`examples/microservices`** — three chained services demonstrating cross-service tracing and blast-radius analysis
-6. **`examples/go-service`** — Go example, containerised on the `obs` network
+6. **`examples/go-service`** — Go example (chi), containerised on the `obs` network
+7. **`examples/go-echo-service`** — Go example using the Echo router (otelecho)
 
 All are verified end-to-end against the running stack: traces, metrics, and trace-correlated logs land
 in Tempo / Mimir / Loki and render in Grafana. `go-service` additionally exercises Redis, Postgres, and
@@ -188,7 +189,8 @@ observability-baseline/
 └── examples/
     ├── nodejs-sample/            # single Express demo app
     ├── microservices/            # checkout-api → orders → payments chain
-    └── go-service/               # Go example, containerised on `obs`
+    ├── go-service/               # Go example (chi), containerised on `obs`
+    └── go-echo-service/          # Go example (Echo router)
 ```
 
 `docker-compose.yml` deliberately has **no healthchecks** on Loki/Tempo/Mimir: those images are
@@ -256,7 +258,8 @@ First boot of any app from `/mnt/d` takes ~90–175s (WSL2 9P filesystem bridge)
 | 8888 | OTel Collector | Self-metrics (Prometheus) |
 | 9009 | Mimir | Prometheus-compatible API |
 | 4040 | Pyroscope | Continuous profiling ingest + UI |
-| 8090 | go-service | Go example (containerised on `obs`) |
+| 8090 | go-service | Go example, chi router (containerised on `obs`) |
+| 8091 | go-echo-service | Go example, Echo router (host-run) |
 | 6379 | Redis | cache — monitored by the collector's `redis` receiver |
 | 5432 | Postgres | database — monitored by the `postgresql` receiver |
 | 5672 | RabbitMQ | AMQP — what the app connects to |

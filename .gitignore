@@ -17,5 +17,6 @@ Thumbs.db
 # Go build artifacts. `go build ./...` in a main package drops a binary named
 # after the module directory — 23MB of it, right next to the source.
 /examples/go-service/go-service-example
+/examples/go-echo-service/go-echo-service-example
 *.test
 *.out

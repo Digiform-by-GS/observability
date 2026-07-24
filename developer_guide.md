@@ -290,15 +290,34 @@ created.Add(ctx, 1, metric.WithAttributes(attribute.String("channel", "web")))
 
 #### HTTP
 
-Use the **framework** wrapper, not bare `otelhttp`, on the server — it names
-spans after the route *template*, keeping `span_name` cardinality bounded:
+Use your framework's **OTel middleware**, not bare `otelhttp`, on the server — it
+names spans after the route *template* (`GET /orders/:id`), not the concrete path
+(`GET /orders/42`), keeping `span_name` cardinality bounded. Whichever router you
+use, that is the only line that changes; everything else in your service is
+identical.
 
 ```go
+// chi — see examples/go-service
 r := chi.NewRouter()
-r.Use(otelchi.Middleware("orders", otelchi.WithChiRoutes(r)))          // server
+r.Use(otelchi.Middleware("orders", otelchi.WithChiRoutes(r)))
 
-client := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)} // client — injects traceparent
+// Echo — see examples/go-echo-service
+e := echo.New()
+e.Use(otelecho.Middleware("orders"))
+
+// Gin
+r := gin.New()
+r.Use(otelgin.Middleware("orders"))
+
+// Client — this wrapped transport is what injects traceparent outbound
+client := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 ```
+
+Imports: `otelchi` (`github.com/riandyrn/otelchi`), `otelecho`
+(`go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho`),
+`otelgin` (`go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin`).
+Verified: hitting `/orders/1..N` on the Echo example collapses to a single
+`GET /orders/:id` span-metrics series, not N.
 
 #### Redis — `observability-go/redisx`
 

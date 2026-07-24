@@ -35,7 +35,7 @@ jobs:
           npm run -w @digiform/microservices-demo typecheck
 
   go:
-    name: Go (observability-go + go-service)
+    name: Go (observability-go + examples)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,10 +46,11 @@ jobs:
           cache-dependency-path: |
             packages/observability-go/go.sum
             examples/go-service/go.sum
+            examples/go-echo-service/go.sum
 
       - name: gofmt
         run: |
-          unformatted="$(gofmt -l packages/observability-go examples/go-service)"
+          unformatted="$(gofmt -l packages/observability-go examples/go-service examples/go-echo-service)"
           if [ -n "$unformatted" ]; then
             echo "These files need gofmt:"; echo "$unformatted"; exit 1
           fi
@@ -58,11 +59,15 @@ jobs:
         working-directory: packages/observability-go
         run: go test -race ./...
 
-      - name: Build + test example
+      - name: Build + test example (chi)
         working-directory: examples/go-service
         run: |
           go build ./...
           go test -race ./...
+
+      - name: Build example (Echo)
+        working-directory: examples/go-echo-service
+        run: go build ./...
 
       # sloglint (context:all) lives in .golangci.yml and is load-bearing, not
       # stylistic — it catches uncorrelated logs the compiler accepts. Lint both
@@ -74,9 +79,16 @@ jobs:
           working-directory: packages/observability-go
           args: --config ${{ github.workspace }}/.golangci.yml
 
-      - name: Lint example
+      - name: Lint example (chi)
         uses: golangci/golangci-lint-action@v6
         with:
           version: v2.12.2
           working-directory: examples/go-service
+          args: --config ${{ github.workspace }}/.golangci.yml
+
+      - name: Lint example (Echo)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
+          working-directory: examples/go-echo-service
           args: --config ${{ github.workspace }}/.golangci.yml
