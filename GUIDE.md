@@ -104,14 +104,14 @@ from env vars.
 Config resolves as **option > environment variable > default**. With the preload, env vars are the
 only input.
 
-| Env var | Option | Default | Notes |
-|---|---|---|---|
-| `OTEL_SERVICE_NAME` | `serviceName` | — | **Required.** Init throws without it. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `endpoint` | `http://localhost:4318` | Collector base URL, OTLP/HTTP. |
-| `OTEL_SERVICE_VERSION` | `serviceVersion` | `npm_package_version` → `0.0.0` | |
-| `OTEL_DEPLOYMENT_ENVIRONMENT` | `environment` | `NODE_ENV` → `development` | |
-| `OTEL_RESOURCE_ATTRIBUTES` | `resourceAttributes` | `{}` | `key=value,key2=value2`. Merged. |
-| `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | — | — | Honoured by the auto-instrumentations. |
+| Env var | Option | Example | Default | Notes |
+|---|---|---|---|---|
+| `OTEL_SERVICE_NAME` | `serviceName` | `orders` | — | **Required.** Init throws without it. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `endpoint` | `http://localhost:4318` | `http://localhost:4318` | Collector base URL, OTLP/HTTP. |
+| `OTEL_SERVICE_VERSION` | `serviceVersion` | `1.4.2` | `npm_package_version` → `0.0.0` | |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | `environment` | `production` | `NODE_ENV` → `development` | |
+| `OTEL_RESOURCE_ATTRIBUTES` | `resourceAttributes` | `team=payments,region=eu-west-1` | `{}` | `key=value,key2=value2`. Merged. |
+| `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | — | `fs,dns` | — | Honoured by the auto-instrumentations. |
 
 Code-only options: `instrumentations` (replaces auto-instrumentations entirely),
 `additionalInstrumentations` (appends), `disableAutoInstrumentations`, `metricExportIntervalMs`

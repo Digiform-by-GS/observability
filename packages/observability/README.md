@@ -66,18 +66,18 @@ export OTEL_DEPLOYMENT_ENVIRONMENT=production
 
 Returns `{ shutdown: () => Promise<void> }`. Calling it twice logs a warning and is a no-op.
 
-| Option | Type | Default | Notes |
-|---|---|---|---|
-| `serviceName` | `string` | — | Required unless `OTEL_SERVICE_NAME` is set. |
-| `serviceVersion` | `string` | `npm_package_version` or `'0.0.0'` | |
-| `environment` | `string` | `NODE_ENV` or `'development'` | |
-| `endpoint` | `string` | `http://localhost:4318` | OTLP/HTTP base URL. |
-| `resourceAttributes` | `Record<string, string>` | `{}` | Merged with `OTEL_RESOURCE_ATTRIBUTES`. |
-| `instrumentations` | `Instrumentation[]` | — | If set, replaces the auto-instrumentations entirely. |
-| `additionalInstrumentations` | `Instrumentation[]` | `[]` | Appended to the auto-instrumentations. |
-| `disableAutoInstrumentations` | `boolean` | `false` | Escape hatch. |
-| `metricExportIntervalMs` | `number` | `60000` | |
-| `logLevel` | `pino.Level` | `'info'` | |
+| Option | Type | Example | Default | Notes |
+|---|---|---|---|---|
+| `serviceName` | `string` | `'orders'` | — | Required unless `OTEL_SERVICE_NAME` is set. |
+| `serviceVersion` | `string` | `'1.4.2'` | `npm_package_version` or `'0.0.0'` | |
+| `environment` | `string` | `'production'` | `NODE_ENV` or `'development'` | |
+| `endpoint` | `string` | `'http://localhost:4318'` | `http://localhost:4318` | OTLP/HTTP base URL. |
+| `resourceAttributes` | `Record<string, string>` | `{ team: 'payments' }` | `{}` | Merged with `OTEL_RESOURCE_ATTRIBUTES`. |
+| `instrumentations` | `Instrumentation[]` | — | — | If set, replaces the auto-instrumentations entirely. |
+| `additionalInstrumentations` | `Instrumentation[]` | — | `[]` | Appended to the auto-instrumentations. |
+| `disableAutoInstrumentations` | `boolean` | `true` | `false` | Escape hatch. |
+| `metricExportIntervalMs` | `number` | `15000` | `60000` | |
+| `logLevel` | `pino.Level` | `'debug'` | `'info'` | |
 
 Precedence: option > env var > default.
 
@@ -101,12 +101,14 @@ Every signal carries the same `service.name`, `service.version`, and `deployment
 
 ## Environment variables honoured
 
-- `OTEL_SERVICE_NAME`
-- `OTEL_SERVICE_VERSION`
-- `OTEL_DEPLOYMENT_ENVIRONMENT`
-- `OTEL_EXPORTER_OTLP_ENDPOINT`
-- `OTEL_RESOURCE_ATTRIBUTES`
-- `OTEL_NODE_DISABLED_INSTRUMENTATIONS` (honoured by `getNodeAutoInstrumentations()`)
+| Variable | Example |
+|---|---|
+| `OTEL_SERVICE_NAME` | `orders` |
+| `OTEL_SERVICE_VERSION` | `1.4.2` |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | `production` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` |
+| `OTEL_RESOURCE_ATTRIBUTES` | `team=payments,region=eu-west-1` |
+| `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs,dns` (honoured by `getNodeAutoInstrumentations()`) |
 
 Plus any `OTEL_*` env var the core SDK understands.
 

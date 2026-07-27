@@ -61,14 +61,14 @@ is unreachable — the moment you most need them.
 
 Precedence is **option > environment variable > default**.
 
-| Env var | Option | Default |
-|---|---|---|
-| `OTEL_SERVICE_NAME` | `WithServiceName` | — (**required**, `New` errors without it) |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `WithEndpoint` | `http://localhost:4318` |
-| `OTEL_SERVICE_VERSION` | `WithServiceVersion` | `0.0.0` |
-| `OTEL_DEPLOYMENT_ENVIRONMENT` | `WithEnvironment` | `development` |
-| `OTEL_RESOURCE_ATTRIBUTES` | `WithResourceAttributes` | none |
-| `OTEL_LOG_LEVEL` | `WithLogLevel` | `info` |
+| Env var | Option | Example | Default |
+|---|---|---|---|
+| `OTEL_SERVICE_NAME` | `WithServiceName` | `orders` | — (**required**, `New` errors without it) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `WithEndpoint` | `http://localhost:4318` | `http://localhost:4318` |
+| `OTEL_SERVICE_VERSION` | `WithServiceVersion` | `1.4.2` | `0.0.0` |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | `WithEnvironment` | `production` | `development` |
+| `OTEL_RESOURCE_ATTRIBUTES` | `WithResourceAttributes` | `team=payments,region=eu-west-1` | none |
+| `OTEL_LOG_LEVEL` | `WithLogLevel` | `info` | `info` |
 
 Also: `WithMetricInterval` (default 60s), `WithoutRuntimeMetrics`,
 `WithoutStdoutLogs`.

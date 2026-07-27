@@ -114,18 +114,18 @@ yourself.
 
 `ObservabilityOptions` (all optional; **option > env var > default**):
 
-| Option | Type | Default | Env var |
-|---|---|---|---|
-| `serviceName` | `string` | — (**required**) | `OTEL_SERVICE_NAME` |
-| `serviceVersion` | `string` | `npm_package_version` → `0.0.0` | `OTEL_SERVICE_VERSION` |
-| `environment` | `string` | `NODE_ENV` → `development` | `OTEL_DEPLOYMENT_ENVIRONMENT` |
-| `endpoint` | `string` | `http://localhost:4318` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
-| `resourceAttributes` | `Record<string,string>` | `{}` | `OTEL_RESOURCE_ATTRIBUTES` |
-| `metricExportIntervalMs` | `number` | `60000` | — |
-| `logLevel` | `pino.Level` | `'info'` | — |
-| `instrumentations` | `Instrumentation[]` | auto | — (replaces auto-instrumentations) |
-| `additionalInstrumentations` | `Instrumentation[]` | `[]` | — (appends) |
-| `disableAutoInstrumentations` | `boolean` | `false` | — |
+| Option | Type | Env var | Example | Default |
+|---|---|---|---|---|
+| `serviceName` | `string` | `OTEL_SERVICE_NAME` | `orders` | — (**required**) |
+| `serviceVersion` | `string` | `OTEL_SERVICE_VERSION` | `1.4.2` | `npm_package_version` → `0.0.0` |
+| `environment` | `string` | `OTEL_DEPLOYMENT_ENVIRONMENT` | `production` | `NODE_ENV` → `development` |
+| `endpoint` | `string` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | `http://localhost:4318` |
+| `resourceAttributes` | `Record<string,string>` | `OTEL_RESOURCE_ATTRIBUTES` | `team=payments,region=eu-west-1` | `{}` |
+| `metricExportIntervalMs` | `number` | — | `15000` | `60000` |
+| `logLevel` | `pino.Level` | — | `'debug'` | `'info'` |
+| `instrumentations` | `Instrumentation[]` | — | — | auto (replaces auto-instrumentations) |
+| `additionalInstrumentations` | `Instrumentation[]` | — | — | `[]` (appends) |
+| `disableAutoInstrumentations` | `boolean` | — | `true` | `false` |
 
 #### `getLogger(): pino.Logger`
 
@@ -244,17 +244,17 @@ enables Go runtime metrics.
 
 `Option` constructors (**option > env var > default**):
 
-| Option | Env var | Default |
-|---|---|---|
-| `WithServiceName(string)` | `OTEL_SERVICE_NAME` | — (**required**, `New` errors without it) |
-| `WithServiceVersion(string)` | `OTEL_SERVICE_VERSION` | `0.0.0` |
-| `WithEnvironment(string)` | `OTEL_DEPLOYMENT_ENVIRONMENT` | `development` |
-| `WithEndpoint(string)` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` |
-| `WithLogLevel(string)` | `OTEL_LOG_LEVEL` | `info` |
-| `WithResourceAttributes(map[string]string)` | `OTEL_RESOURCE_ATTRIBUTES` | none |
-| `WithMetricInterval(time.Duration)` | — | `60s` |
-| `WithoutRuntimeMetrics()` | — | runtime metrics on |
-| `WithoutStdoutLogs()` | — | stdout mirror on |
+| Option | Env var | Example | Default |
+|---|---|---|---|
+| `WithServiceName(string)` | `OTEL_SERVICE_NAME` | `orders` | — (**required**, `New` errors without it) |
+| `WithServiceVersion(string)` | `OTEL_SERVICE_VERSION` | `1.4.2` | `0.0.0` |
+| `WithEnvironment(string)` | `OTEL_DEPLOYMENT_ENVIRONMENT` | `production` | `development` |
+| `WithEndpoint(string)` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | `http://localhost:4318` |
+| `WithLogLevel(string)` | `OTEL_LOG_LEVEL` | `info` | `info` |
+| `WithResourceAttributes(map[string]string)` | `OTEL_RESOURCE_ATTRIBUTES` | `team=payments,region=eu-west-1` | none |
+| `WithMetricInterval(time.Duration)` | — | `15 * time.Second` | `60s` |
+| `WithoutRuntimeMetrics()` | — | — | runtime metrics on |
+| `WithoutStdoutLogs()` | — | — | stdout mirror on |
 
 Methods: `obs.Logger() *slog.Logger`, `obs.Config() Config`, `obs.Shutdown(ctx) error`.
 Package funcs: `observability.Tracer(name, ...) trace.Tracer`, `observability.Meter(name, ...) metric.Meter`.
@@ -388,13 +388,27 @@ Postgres, and RabbitMQ together.
 The one thing that unifies every stack. Set these identically for Go, Node, and
 Next.js — the mental model transfers:
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `OTEL_SERVICE_NAME` | **yes** | Service identity. Unique, stable, **low-cardinality** — never a pod name or SHA. Becomes an indexed Loki label. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | recommended | Collector base URL (default `http://localhost:4318`). In K8s: `http://otel-collector.observability.svc.cluster.local:4318`. |
-| `OTEL_DEPLOYMENT_ENVIRONMENT` | recommended | `dev`/`staging`/`production`. Must match what the collector stamps, or dashboards show half the data. |
-| `OTEL_SERVICE_VERSION` | optional | Wire your build/release tag here. |
-| `OTEL_RESOURCE_ATTRIBUTES` | optional | `key=value,key2=value2` (e.g. `team=payments,region=eu-west-1`). |
+| Variable | Required | Example value | Purpose |
+|---|---|---|---|
+| `OTEL_SERVICE_NAME` | **yes** | `orders` | Service identity. Unique, stable, **low-cardinality** — never a pod name or SHA. Becomes an indexed Loki label. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | recommended | `http://localhost:4318` (K8s: `http://otel-collector.observability.svc.cluster.local:4318`) | Collector base URL, OTLP/HTTP. |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | recommended | `production` | `dev`/`staging`/`production`. Must match what the collector stamps, or dashboards show half the data. |
+| `OTEL_SERVICE_VERSION` | optional | `1.4.2` | Your build/release tag. |
+| `OTEL_RESOURCE_ATTRIBUTES` | optional | `team=payments,region=eu-west-1` | Extra resource attributes, `key=value,key2=value2`. |
+
+Copy-paste starting point:
+
+```bash
+export OTEL_SERVICE_NAME=orders
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+export OTEL_DEPLOYMENT_ENVIRONMENT=production
+export OTEL_SERVICE_VERSION=1.4.2
+export OTEL_RESOURCE_ATTRIBUTES=team=payments,region=eu-west-1
+# Go only, optional:
+export OTEL_LOG_LEVEL=info
+# opt-in profiling (both stacks):
+export PYROSCOPE_SERVER_ADDRESS=http://localhost:4040
+```
 
 ---
 
