@@ -102,16 +102,19 @@ from env vars.
 ### Configuration
 
 Config resolves as **option > environment variable > default**. With the preload, env vars are the
-only input.
+only input. **Only `OTEL_SERVICE_NAME` is mandatory** — everything else has a default (so the service
+still starts), though the ones marked *recommended* matter in any real deployment. For a full
+per-variable explanation of what each does and what breaks if you omit it, see
+[`developer_guide.md`](./developer_guide.md#the-shared-environment-variable-contract).
 
-| Env var | Option | Example | Default | Notes |
-|---|---|---|---|---|
-| `OTEL_SERVICE_NAME` | `serviceName` | `orders` | — | **Required.** Init throws without it. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `endpoint` | `http://localhost:4318` | `http://localhost:4318` | Collector base URL, OTLP/HTTP. |
-| `OTEL_SERVICE_VERSION` | `serviceVersion` | `1.4.2` | `npm_package_version` → `0.0.0` | |
-| `OTEL_DEPLOYMENT_ENVIRONMENT` | `environment` | `production` | `NODE_ENV` → `development` | |
-| `OTEL_RESOURCE_ATTRIBUTES` | `resourceAttributes` | `team=payments,region=eu-west-1` | `{}` | `key=value,key2=value2`. Merged. |
-| `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | — | `fs,dns` | — | Honoured by the auto-instrumentations. |
+| Env var | Mandatory? | Option | Example | Default | Notes |
+|---|---|---|---|---|---|
+| `OTEL_SERVICE_NAME` | **Yes** | `serviceName` | `orders` | — | Init throws without it. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | No *(recommended)* | `endpoint` | `http://localhost:4318` | `http://localhost:4318` | Collector base URL; the localhost default is wrong in containers/K8s. |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | No *(recommended)* | `environment` | `production` | `NODE_ENV` → `development` | Must match what the collector stamps. |
+| `OTEL_SERVICE_VERSION` | No | `serviceVersion` | `1.4.2` | `npm_package_version` → `0.0.0` | Use a release tag, not a per-commit SHA (metric cardinality). |
+| `OTEL_RESOURCE_ATTRIBUTES` | No | `resourceAttributes` | `team=payments,region=eu-west-1` | `{}` | `key=value,key2=value2`. Merged. |
+| `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | No | — | `fs,dns` | — | Honoured by the auto-instrumentations. |
 
 Code-only options: `instrumentations` (replaces auto-instrumentations entirely),
 `additionalInstrumentations` (appends), `disableAutoInstrumentations`, `metricExportIntervalMs`

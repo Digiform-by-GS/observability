@@ -386,28 +386,91 @@ Postgres, and RabbitMQ together.
 ## The shared environment-variable contract
 
 The one thing that unifies every stack. Set these identically for Go, Node, and
-Next.js — the mental model transfers:
+Next.js — the mental model transfers.
 
-| Variable | Required | Example value | Purpose |
+**Only `OTEL_SERVICE_NAME` is mandatory.** Everything else has a safe default, so
+a service will *start and emit telemetry* with just that one set. Several of the
+optional ones are strongly recommended in any real deployment (marked below) —
+"optional" means the code won't fail without it, not that you should skip it.
+
+| Variable | Mandatory? | Example | Default if unset |
 |---|---|---|---|
-| `OTEL_SERVICE_NAME` | **yes** | `orders` | Service identity. Unique, stable, **low-cardinality** — never a pod name or SHA. Becomes an indexed Loki label. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | recommended | `http://localhost:4318` (K8s: `http://otel-collector.observability.svc.cluster.local:4318`) | Collector base URL, OTLP/HTTP. |
-| `OTEL_DEPLOYMENT_ENVIRONMENT` | recommended | `production` | `dev`/`staging`/`production`. Must match what the collector stamps, or dashboards show half the data. |
-| `OTEL_SERVICE_VERSION` | optional | `1.4.2` | Your build/release tag. |
-| `OTEL_RESOURCE_ATTRIBUTES` | optional | `team=payments,region=eu-west-1` | Extra resource attributes, `key=value,key2=value2`. |
+| `OTEL_SERVICE_NAME` | **Yes** | `orders` | none — **startup fails** |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | No *(set in real deploys)* | `http://localhost:4318` | `http://localhost:4318` |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | No *(recommended)* | `production` | `development` (Go) / `NODE_ENV` → `development` (Node) |
+| `OTEL_SERVICE_VERSION` | No | `1.4.2` | `0.0.0` (Go) / `npm_package_version` → `0.0.0` (Node) |
+| `OTEL_RESOURCE_ATTRIBUTES` | No | `team=payments,region=eu-west-1` | empty |
+| `OTEL_LOG_LEVEL` *(Go only)* | No | `info` | `info` |
+| `PYROSCOPE_SERVER_ADDRESS` *(opt-in profiling)* | No | `http://localhost:4040` | unset → profiling off |
 
-Copy-paste starting point:
+### What each one does, and what happens if you omit it
+
+**`OTEL_SERVICE_NAME` — mandatory.**
+The service's identity; every trace, metric, and log is tagged with it, and it
+becomes an **indexed label** in Loki and the primary grouping in Tempo/Mimir.
+*Omit it →* the library refuses to start (Node throws, Go's `New` returns an
+error) — this is deliberate, because un-named telemetry is nearly useless.
+*Gotcha:* keep it **stable and low-cardinality** — one value per logical service
+(`orders`, `checkout-api`). Never put a pod name, instance id, or commit SHA
+here; as an indexed label, high cardinality is expensive.
+
+**`OTEL_EXPORTER_OTLP_ENDPOINT` — optional, but set it in any real deployment.**
+The base URL of the OTel Collector your telemetry is sent to (OTLP/HTTP).
+*Omit it →* defaults to `http://localhost:4318`, which is correct for local dev
+but **silently wrong** in a container or Kubernetes, where the collector is a
+different host — your telemetry goes nowhere and nothing errors. In K8s use
+`http://otel-collector.observability.svc.cluster.local:4318`.
+
+**`OTEL_DEPLOYMENT_ENVIRONMENT` — optional, strongly recommended.**
+Stamps `deployment.environment` (`dev`/`staging`/`production`) on everything, so
+you can filter one environment's data from another's.
+*Omit it →* defaults to `development` (Go) or `NODE_ENV` (Node). *Gotcha:* it
+**must match what the Collector stamps** (the collector also sets this via its
+own `DEPLOYMENT_ENVIRONMENT`); if the app says `prod` and the collector says
+`dev`, environment-filtered dashboards show only half the data.
+
+**`OTEL_SERVICE_VERSION` — optional.**
+Stamps `service.version` so you can tell *which build* emitted a given
+trace/log/metric — useful for correlating an incident to a deploy or filtering a
+canary. *Omit it →* defaults to `0.0.0` (Go) or your `package.json` version
+(Node); everything still works. *Gotcha:* the Collector promotes resource
+attributes to **metric labels**, so every distinct value creates a new set of
+metric series. A **release/semver tag** (`1.4.2`) is low-cardinality and the
+intended use. Do **not** put a per-commit git SHA here if you deploy on every
+commit — that churns series against Mimir's cardinality limit. It never affects
+tracing, logging, or cross-service correlation — those are unchanged whatever you
+set.
+
+**`OTEL_RESOURCE_ATTRIBUTES` — optional.**
+Extra resource attributes as `key=value,key2=value2` (e.g. `team`, `region`),
+merged into every signal. *Omit it →* none are added. *Gotcha:* same
+metric-label promotion as above — keep the *values* low-cardinality.
+
+**`OTEL_LOG_LEVEL` — optional, Go only.**
+Minimum log level the Go logger emits (`debug`/`info`/`warn`/`error`).
+*Omit it →* `info`. (The Node logger's level is set via the `logLevel` option,
+not an env var.)
+
+**`PYROSCOPE_SERVER_ADDRESS` — optional, opt-in.**
+Enables continuous profiling by pointing the Pyroscope SDK at the server.
+*Omit it →* profiling is simply off; traces/metrics/logs are unaffected. Set it
+to `http://localhost:4040` (or the in-cluster Pyroscope service) to turn it on.
+
+### Copy-paste starting point
 
 ```bash
+# Mandatory
 export OTEL_SERVICE_NAME=orders
+
+# Optional but recommended in real deployments
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 export OTEL_DEPLOYMENT_ENVIRONMENT=production
+
+# Optional
 export OTEL_SERVICE_VERSION=1.4.2
 export OTEL_RESOURCE_ATTRIBUTES=team=payments,region=eu-west-1
-# Go only, optional:
-export OTEL_LOG_LEVEL=info
-# opt-in profiling (both stacks):
-export PYROSCOPE_SERVER_ADDRESS=http://localhost:4040
+export OTEL_LOG_LEVEL=info                              # Go only
+export PYROSCOPE_SERVER_ADDRESS=http://localhost:4040   # opt-in profiling
 ```
 
 ---
