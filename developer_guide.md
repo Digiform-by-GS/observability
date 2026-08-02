@@ -475,6 +475,247 @@ export PYROSCOPE_SERVER_ADDRESS=http://localhost:4040   # opt-in profiling
 
 ---
 
+## Best practices — instrumenting custom code
+
+The APIs above tell you *how* to emit a signal. This section is about *when and
+which* — the judgement calls you make every time you write a new feature. It is
+the section to internalise if this baseline backs all your custom development.
+
+### The mental model: three signals, three questions
+
+Each signal answers one question well and the others badly. Pick by the question
+you'll be asking at 2am:
+
+| Signal | The question it answers | Consumed as |
+|---|---|---|
+| **Metric** | "How often / how much, *in aggregate*?" | dashboards, alerts |
+| **Span (trace)** | "Where did the time go in *this specific request*?" | request waterfall in Tempo |
+| **Log** | "What *exactly* happened, with what data?" | Loki search, joined to the trace by `trace_id` |
+
+The unit of instrumentation is the **business operation** — `redeem-voucher`,
+`settle-invoice`, `sync-inventory` — not the function. One operation gets one
+span, one outcome counter, and a handful of logs. Helper functions inside it get
+**nothing**: they're visible through the operation's span, and a span per helper
+turns every trace into noise.
+
+### You already get RED metrics for free — don't duplicate them
+
+This stack runs Tempo's span-metrics generator: **every span name automatically
+produces rate, error, and duration series** (`traces_spanmetrics_calls_total`,
+`traces_spanmetrics_latency_bucket`) in Mimir. So the moment your operation has
+a span, its request rate, error rate, and latency histogram exist — with
+exemplars linking back to traces.
+
+Two consequences:
+
+- **Never hand-roll a `*_duration` histogram for something that has a span.**
+  It duplicates data you already have, minus the exemplars — and each histogram
+  is ~16+ series. (Measured in this repo: span-metrics are >50% of all series;
+  see [`CLAUDE.md`](./CLAUDE.md).)
+- **Custom metrics are for business semantics only** — things no span knows:
+  order amounts, items per basket, vouchers redeemed by outcome, queue depths.
+  Counters and gauges, mostly. If your custom metric's name contains `duration`
+  or `latency`, stop and use the span instead.
+
+### The core pattern
+
+Every instrumented operation has the same shape:
+
+1. **One span** wrapping the operation, named after it, carrying bounded
+   business attributes (`voucher.type`, not `voucher.id` — see naming below).
+2. **Errors recorded twice, deliberately**: on the span (`RecordError` +
+   `SetStatus` in Go, `recordException` + `setStatus` in Node) *and* as an error
+   log. They serve different consumers — the span status drives error-rate
+   metrics and red traces; the log carries the detail and is searchable in Loki.
+3. **One counter with an `outcome` attribute** (`redeemed` / `expired` /
+   `rejected`), if the business cares how often this happens — not whether it
+   was slow (the span covers that).
+4. **Logs at state changes**, with the identifiers in structured fields, always
+   through the context-aware call so `trace_id` is attached.
+
+### Worked example — `redeem-voucher`
+
+The same operation, fully instrumented in both stacks: validate → load from DB →
+call the payments service → record the result.
+
+**Go:**
+
+```go
+var (
+    tracer = observability.Tracer("vouchers")
+    meter  = observability.Meter("vouchers")
+)
+
+// Created once at construction time, never per request.
+redemptions, err := meter.Int64Counter("app.vouchers.redemptions",
+    metric.WithDescription("Voucher redemption attempts, by outcome."))
+if err != nil { /* fail startup */ }
+
+func (s *Service) RedeemVoucher(ctx context.Context, code string, orderID string) error {
+    // 1. One span for the business operation. ctx in, ctx out — the returned
+    //    ctx is what carries this span to everything called below.
+    ctx, span := tracer.Start(ctx, "redeem-voucher",
+        trace.WithAttributes(
+            attribute.String("voucher.type", voucherType(code)), // bounded value
+        ))
+    defer span.End()
+
+    voucher, err := s.repo.FindByCode(ctx, code) // otelsql span appears nested here
+    if err != nil {
+        // 2. Error on the span AND in the log — different consumers.
+        span.RecordError(err)
+        span.SetStatus(codes.Error, "voucher lookup failed")
+        s.log.ErrorContext(ctx, "voucher lookup failed",
+            slog.String("voucher_code", code), slog.Any("error", err))
+        redemptions.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", "error")))
+        return fmt.Errorf("redeem voucher: %w", err)
+    }
+
+    if voucher.Expired() {
+        // A business outcome is not a system error: log at Info/Warn, count it,
+        // do NOT mark the span failed — expired vouchers are normal traffic.
+        s.log.InfoContext(ctx, "voucher expired",
+            slog.String("voucher_code", code))
+        redemptions.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", "expired")))
+        return ErrVoucherExpired
+    }
+
+    // Outbound call: the wrapped transport propagates the trace to payments.
+    if err := s.payments.ApplyDiscount(ctx, orderID, voucher.Amount); err != nil {
+        span.RecordError(err)
+        span.SetStatus(codes.Error, "payments rejected discount")
+        s.log.ErrorContext(ctx, "discount application failed",
+            slog.String("order_id", orderID), slog.Any("error", err))
+        redemptions.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", "rejected")))
+        return fmt.Errorf("apply discount: %w", err)
+    }
+
+    // 4. State change logged with identifiers in fields, message a constant.
+    s.log.InfoContext(ctx, "voucher redeemed",
+        slog.String("voucher_code", code),
+        slog.String("order_id", orderID),
+        slog.Int("discount_cents", voucher.Amount))
+    redemptions.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", "redeemed")))
+    return nil
+}
+```
+
+**TypeScript (Node):**
+
+```ts
+import { getTracer, getMeter, getLogger } from '@digiform/observability';
+import { SpanStatusCode } from '@opentelemetry/api';
+
+const tracer = getTracer('vouchers');
+const meter = getMeter('vouchers');
+const log = getLogger();
+
+// Once at module scope, never per request.
+const redemptions = meter.createCounter('app.vouchers.redemptions', {
+  description: 'Voucher redemption attempts, by outcome.',
+});
+
+export async function redeemVoucher(code: string, orderId: string): Promise<void> {
+  // startActiveSpan makes the span current, so the DB call, the outbound fetch,
+  // and every log line inside the callback attach to it automatically.
+  return tracer.startActiveSpan('redeem-voucher', async (span) => {
+    try {
+      span.setAttribute('voucher.type', voucherType(code)); // bounded value
+
+      const voucher = await repo.findByCode(code); // auto-instrumented client span
+
+      if (voucher.expired) {
+        // Business outcome, not a system error: no error status on the span.
+        log.info({ voucherCode: code }, 'voucher expired');
+        redemptions.add(1, { outcome: 'expired' });
+        throw new VoucherExpiredError(code);
+      }
+
+      await payments.applyDiscount(orderId, voucher.amount); // fetch propagates the trace
+
+      log.info(
+        { voucherCode: code, orderId, discountCents: voucher.amount },
+        'voucher redeemed',
+      );
+      redemptions.add(1, { outcome: 'redeemed' });
+    } catch (err) {
+      if (!(err instanceof VoucherExpiredError)) {
+        // System failure: span AND log, then count the outcome.
+        span.recordException(err as Error);
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        log.error(
+          { voucherCode: code, orderId, err: { message: (err as Error).message } },
+          'voucher redemption failed',
+        );
+        redemptions.add(1, { outcome: 'error' });
+      }
+      throw err;
+    } finally {
+      span.end(); // always — a never-ended span is a leaked trace
+    }
+  });
+}
+```
+
+What you get from this one pattern, with zero dashboard work: request/error/latency
+for `redeem-voucher` in Mimir (span-metrics), the full waterfall including the DB
+and payments calls in Tempo, redemptions-by-outcome as a business metric, and
+every log line joined to its trace in Loki.
+
+### Naming conventions
+
+| What | Rule | Good | Bad |
+|---|---|---|---|
+| Span name | verb-noun, constant string, bounded set | `redeem-voucher` | `redeem voucher A7X-99` |
+| Metric name | `app.` namespace, dots, unit in the name if not obvious | `app.vouchers.redemptions`, `app.basket.size` | `redemptions`, `app.time` |
+| Metric attribute values | small closed set | `outcome=expired` | `voucher_code=A7X-99` |
+| Span attribute keys | dotted namespaces | `voucher.type` | `voucherTypeValue` |
+| Log fields | identifiers in fields, snake_case in Go (`order_id`) / camelCase in Node (`orderId`) | `slog.String("order_id", id)` | interpolating the id into the message |
+| Log message | constant string (greppable, Loki-pattern-friendly) | `"voucher redeemed"` | `fmt.Sprintf("voucher %s redeemed", code)` |
+
+Ids belong in **span attributes and log fields** (cheap, searchable per-request),
+never in span *names* or metric attributes (each distinct value is a new series —
+Mimir's limits in this stack are configured to reject you, loudly).
+
+### Do / Don't
+
+**Do**
+- Pass `ctx` through every function in the call path (Go). It *is* the trace —
+  break the chain and everything below logs and spans into the void.
+- Use `InfoContext`/`ErrorContext` (Go) — enforced by `sloglint` in CI; a bare
+  `logger.Info` compiles fine and silently loses correlation.
+- Record failures on the span **and** log them; count outcomes the business
+  cares about.
+- Distinguish **business outcomes** (expired voucher → Info log + outcome
+  counter, span stays OK) from **system errors** (DB down → error status +
+  error log). If every declined card marks the span failed, your error-rate
+  alert is measuring your customers, not your system.
+- Create instruments once (module/struct scope), reuse per request.
+
+**Don't**
+- Don't create a span per helper function — one per business operation plus the
+  automatic ones (HTTP, SQL, Redis, AMQP) is the right resolution.
+- Don't hand-roll duration histograms for anything that has a span.
+- Don't put ids, paths, or timestamps in span names or metric attribute values.
+- Don't log inside per-item loops — aggregate and log once with counts
+  (`slog.Int("items", n)`). A 500-item basket must not produce 500 log lines.
+- Don't wrap logs in try/catch-and-ignore or `if debug` conditionals; level
+  filtering is the logger's job (`OTEL_LOG_LEVEL` / `logLevel`).
+
+### Which signal do I add? (decision table)
+
+| Situation | Add |
+|---|---|
+| New HTTP endpoint | Usually **nothing** — the router middleware traces it, span-metrics give RED, request logs carry trace_id. Add business logs/counters only. |
+| "This endpoint is slow, but where?" | **Child spans** around the suspect phases (`tracer.Start` / `startActiveSpan`) — then read the waterfall. |
+| A business KPI ("how many X per hour?") | **Counter** with a low-cardinality `outcome`/`type` attribute. |
+| New cache / DB / queue dependency | The **client wrapper** (`redisx`, `sqlx`, `amqp`, `otelhttp`) — never raw clients; the wrapper is what nests it into the trace. |
+| Background job / scheduled task | **One span per execution** as a new root (there's no incoming request), a completion counter with `outcome`, and a "how stale is the data" gauge if timing matters (cf. `messaging.message.age`). |
+| "I need to know what the payload looked like" | **Log fields** (sizes, types, flags — not full payload dumps), inside the span's context. |
+| Investigating a past incident | Nothing new — if the above was followed, pivot trace ↔ logs ↔ metrics in Grafana. If you couldn't answer it, add the *missing* signal where the question pointed. |
+
+---
+
 ## Cross-cutting rules (both stacks)
 
 - **Span names must be bounded.** Route templates, not raw paths; fixed operation
