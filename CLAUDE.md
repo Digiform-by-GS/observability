@@ -310,6 +310,22 @@ nothing. Probe bindability with a throwaway `net.createServer()` script rather t
 
 ---
 
+## The onboarding plugin mirrors the docs — keep them in lockstep
+
+`plugin/` is a distributable Claude Code plugin (marketplace manifest at
+`.claude-plugin/marketplace.json`) whose skills are **self-contained copies**
+of the knowledge in `developer_guide.md` / `platform_guide.md` / this file —
+client repos cannot see this monorepo, so the skills cannot link back here.
+That is a deliberate trade: distribution requires duplication.
+
+Consequence: **any change to a library's public API, the env-var contract, or
+an operational gotcha needs a matching `plugin/skills/` update in the same
+PR.** CI enforces the mechanical half (valid manifests, shellcheck, no
+deployment-specific IPs, no monorepo doc references inside skills); the
+content half is on you. The rehearsal fixtures `examples/plain-express` and
+`examples/plain-chi` are deliberately uninstrumented "before" apps for testing
+the onboard skill — do not instrument them.
+
 ## Out of Scope (v1)
 
 - Kubernetes / Helm deployment

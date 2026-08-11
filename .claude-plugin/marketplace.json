@@ -1,0 +1,14 @@
+{
+  "name": "digiform",
+  "owner": {
+    "name": "Digiform",
+    "url": "https://github.com/digiform"
+  },
+  "plugins": [
+    {
+      "name": "observability-onboard",
+      "source": "./plugin",
+      "description": "Instrument a Node or Go service against the Digiform observability platform: onboard, verify signals end-to-end, add custom instrumentation, provision a service dashboard."
+    }
+  ]
+}
