@@ -1,4 +1,4 @@
-module github.com/digiform/observability-go
+module github.com/digiform/observability/packages/observability-go
 
 go 1.26.5
 

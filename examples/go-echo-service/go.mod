@@ -2,10 +2,10 @@ module github.com/digiform/go-echo-service-example
 
 go 1.26.5
 
-replace github.com/digiform/observability-go => ../../packages/observability-go
+replace github.com/digiform/observability/packages/observability-go => ../../packages/observability-go
 
 require (
-	github.com/digiform/observability-go v0.0.0-00010101000000-000000000000
+	github.com/digiform/observability/packages/observability-go v0.0.0-00010101000000-000000000000
 	github.com/labstack/echo/v4 v4.15.4
 	go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.69.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0

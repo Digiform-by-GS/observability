@@ -2,10 +2,10 @@ module github.com/digiform/go-service-example
 
 go 1.26.5
 
-replace github.com/digiform/observability-go => ../../packages/observability-go
+replace github.com/digiform/observability/packages/observability-go => ../../packages/observability-go
 
 require (
-	github.com/digiform/observability-go v0.0.0-00010101000000-000000000000
+	github.com/digiform/observability/packages/observability-go v0.0.0-00010101000000-000000000000
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/rabbitmq/amqp091-go v1.13.0

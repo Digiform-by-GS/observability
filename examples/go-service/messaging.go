@@ -10,7 +10,7 @@ import (
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
 
-	obsamqp "github.com/digiform/observability-go/amqp"
+	obsamqp "github.com/digiform/observability/packages/observability-go/amqp"
 )
 
 const (

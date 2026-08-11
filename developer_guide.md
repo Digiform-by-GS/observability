@@ -34,7 +34,7 @@ is a stable, backward-compatible protocol.
 | OpenTelemetry JS | `@opentelemetry/api` `^1.9.1`, SDK `^0.215.0` (experimental) + `^2.7.0` (stable) | The wrapper pins a **compatible set** — upgrade the wrapper, not the individual sub-packages. The `0.x` experimental packages can break between minors. |
 | pino | `^10.3.1` | The logger you get from `getLogger()`. |
 
-### Go — `github.com/digiform/observability-go`
+### Go — `github.com/digiform/observability/packages/observability-go`
 
 | Requirement | Version | Notes |
 |---|---|---|
@@ -197,7 +197,7 @@ and the multi-service [`examples/microservices`](./examples/microservices/).
 ### 1. Install
 
 ```bash
-go get github.com/digiform/observability-go
+go get github.com/digiform/observability/packages/observability-go
 ```
 
 Requires Go 1.25+.
@@ -214,7 +214,7 @@ import (
     "os/signal"
     "syscall"
     "time"
-    observability "github.com/digiform/observability-go"
+    observability "github.com/digiform/observability/packages/observability-go"
 )
 
 func main() {
@@ -322,7 +322,7 @@ Verified: hitting `/orders/1..N` on the Echo example collapses to a single
 #### Redis — `observability-go/redisx`
 
 ```go
-import "github.com/digiform/observability-go/redisx"
+import "github.com/digiform/observability/packages/observability-go/redisx"
 
 client := redis.NewClient(&redis.Options{Addr: "redis:6379"})
 if err := redisx.Instrument(client); err != nil { /* ... */ }   // BEFORE any command
@@ -335,7 +335,7 @@ client spans reveal *which endpoint* is hammering it.
 #### SQL — `observability-go/sqlx`
 
 ```go
-import "github.com/digiform/observability-go/sqlx"
+import "github.com/digiform/observability/packages/observability-go/sqlx"
 
 db, closeDB, err := sqlx.Open("pgx", dsn, "postgresql")
 if err != nil { /* ... */ }
@@ -349,7 +349,7 @@ The important design point: **consumers start a new root trace linked to the
 producer**, not a parent-child span. See [`CLAUDE.md`](./CLAUDE.md) for why.
 
 ```go
-import obsamqp "github.com/digiform/observability-go/amqp"
+import obsamqp "github.com/digiform/observability/packages/observability-go/amqp"
 
 // Producer — PRODUCER span, injects trace context into headers
 pub, _ := obsamqp.NewPublisher(ch)   // ch is *amqp091.Channel (or the Channel interface)
@@ -369,7 +369,7 @@ dead-letter), and the `PublishedAtHeader` / `RetryCountHeader` constants.
 
 ### 5. Migrating an existing Go service
 
-1. `go get github.com/digiform/observability-go`; ensure Go 1.25+.
+1. `go get github.com/digiform/observability/packages/observability-go`; ensure Go 1.25+.
 2. Add `observability.New(ctx, …)` + `defer obs.Shutdown(...)` in `main`; own the
    signal context.
 3. Wrap your router (`otelchi`/`otelgin`) and HTTP clients (`otelhttp.NewTransport`).
