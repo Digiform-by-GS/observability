@@ -1,0 +1,11 @@
+# Shell scripts must keep LF endings regardless of the checkout platform. A
+# CRLF shebang line makes Linux reject the file outright with a "bad
+# interpreter" error, which is how scripts/verify-platform.sh broke the first
+# time it was copied from a Windows working tree to the platform host.
+*.sh text eol=lf
+
+# Same reasoning for the files the containers read: these are bind-mounted into
+# Linux images, and some YAML/config parsers keep the trailing \r as part of a
+# value.
+*.yaml text eol=lf
+*.yml  text eol=lf
