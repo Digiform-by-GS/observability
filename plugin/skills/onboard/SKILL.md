@@ -58,6 +58,7 @@ Only one variable is mandatory:
 | `OTEL_RESOURCE_ATTRIBUTES` | Recommended | `team=<the user's team>` |
 | `OTEL_DEPLOYMENT_ENVIRONMENT` | Optional | `development` / `staging` / `production` |
 | `OTEL_SERVICE_VERSION` | Optional | Release tag like `1.4.2` — **never a git SHA** (each distinct value mints a full new set of metric series) |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Only if the platform requires auth | `Authorization=Bearer <key>` — the operator issues the key; keep it in `.env`/secrets, never in platform.json |
 
 Wire these wherever the service already gets its env (`.env` file, compose
 `environment:`, deployment manifest). Follow the repo's existing convention.

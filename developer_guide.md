@@ -120,6 +120,7 @@ yourself.
 | `serviceVersion` | `string` | `OTEL_SERVICE_VERSION` | `1.4.2` | `npm_package_version` → `0.0.0` |
 | `environment` | `string` | `OTEL_DEPLOYMENT_ENVIRONMENT` | `production` | `NODE_ENV` → `development` |
 | `endpoint` | `string` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | `http://localhost:4318` |
+| `headers` | `Record<string,string>` | `OTEL_EXPORTER_OTLP_HEADERS` | `{ Authorization: 'Bearer abc' }` | none (**merges** with the env var) |
 | `resourceAttributes` | `Record<string,string>` | `OTEL_RESOURCE_ATTRIBUTES` | `team=payments,region=eu-west-1` | `{}` |
 | `metricExportIntervalMs` | `number` | — | `15000` | `60000` |
 | `logLevel` | `pino.Level` | — | `'debug'` | `'info'` |
@@ -250,6 +251,7 @@ enables Go runtime metrics.
 | `WithServiceVersion(string)` | `OTEL_SERVICE_VERSION` | `1.4.2` | `0.0.0` |
 | `WithEnvironment(string)` | `OTEL_DEPLOYMENT_ENVIRONMENT` | `production` | `development` |
 | `WithEndpoint(string)` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | `http://localhost:4318` |
+| `WithHeaders(map[string]string)` | `OTEL_EXPORTER_OTLP_HEADERS` | `{"Authorization": "Bearer abc"}` | none (**replaces** the env var — see the contract section) |
 | `WithLogLevel(string)` | `OTEL_LOG_LEVEL` | `info` | `info` |
 | `WithResourceAttributes(map[string]string)` | `OTEL_RESOURCE_ATTRIBUTES` | `team=payments,region=eu-west-1` | none |
 | `WithMetricInterval(time.Duration)` | — | `15 * time.Second` | `60s` |
@@ -400,6 +402,7 @@ optional ones are strongly recommended in any real deployment (marked below) —
 | `OTEL_DEPLOYMENT_ENVIRONMENT` | No *(recommended)* | `production` | `development` (Go) / `NODE_ENV` → `development` (Node) |
 | `OTEL_SERVICE_VERSION` | No | `1.4.2` | `0.0.0` (Go) / `npm_package_version` → `0.0.0` (Node) |
 | `OTEL_RESOURCE_ATTRIBUTES` | No | `team=payments,region=eu-west-1` | empty |
+| `OTEL_EXPORTER_OTLP_HEADERS` | No *(required by authenticated collectors)* | `Authorization=Bearer abc123` | none |
 | `OTEL_LOG_LEVEL` *(Go only)* | No | `info` | `info` |
 | `PYROSCOPE_SERVER_ADDRESS` *(opt-in profiling)* | No | `http://localhost:4040` | unset → profiling off |
 
@@ -446,6 +449,26 @@ Extra resource attributes as `key=value,key2=value2` (e.g. `team`, `region`),
 merged into every signal. *Omit it →* none are added. *Gotcha:* same
 metric-label promotion as above — keep the *values* low-cardinality.
 
+**`OTEL_EXPORTER_OTLP_HEADERS` — optional; mandatory against an authenticated collector.**
+Extra headers sent on every OTLP export, `key=value,key2=value2` (commonly
+`Authorization=Bearer <token>`, and `X-Scope-OrgID=<tenant>` on a multi-tenant
+backend). The local dev stack is unauthenticated, so you will not need it there.
+*Omit it against a collector that requires auth →* every export is rejected;
+depending on the gateway you may see 401s in the app log, or nothing at all.
+
+Both libraries also accept the same thing programmatically — Node's `headers`
+option and Go's `WithHeaders(map[string]string)` — for tokens that come from a
+secret manager rather than the environment.
+
+> **The two stacks differ when you set both, and it is silent.** Go's
+> `WithHeaders` **replaces** whatever `OTEL_EXPORTER_OTLP_HEADERS` provided
+> (upstream assigns the map outright); Node's option **merges** with it. So an
+> app with `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer t` that also calls
+> `WithHeaders({"X-Scope-OrgID": "acme"})` sends **no token** in Go and both
+> headers in Node. **Pick one mechanism per service.** Regression tests pin this
+> behaviour in both libraries (`headers_test.go` / `test/headers.test.ts`), so
+> if an upstream release changes it, CI says so.
+
 **`OTEL_LOG_LEVEL` — optional, Go only.**
 Minimum log level the Go logger emits (`debug`/`info`/`warn`/`error`).
 *Omit it →* `info`. (The Node logger's level is set via the `logLevel` option,
@@ -470,6 +493,7 @@ export OTEL_DEPLOYMENT_ENVIRONMENT=production
 export OTEL_SERVICE_VERSION=1.4.2
 export OTEL_RESOURCE_ATTRIBUTES=team=payments,region=eu-west-1
 export OTEL_LOG_LEVEL=info                              # Go only
+export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer\ abc123   # authenticated collectors
 export PYROSCOPE_SERVER_ADDRESS=http://localhost:4040   # opt-in profiling
 ```
 

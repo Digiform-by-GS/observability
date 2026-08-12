@@ -108,6 +108,7 @@ Every signal carries the same `service.name`, `service.version`, and `deployment
 | `OTEL_DEPLOYMENT_ENVIRONMENT` | `production` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` |
 | `OTEL_RESOURCE_ATTRIBUTES` | `team=payments,region=eu-west-1` |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `Authorization=Bearer abc123` (needed by authenticated collectors; merges with the `headers` option) |
 | `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs,dns` (honoured by `getNodeAutoInstrumentations()`) |
 
 Plus any `OTEL_*` env var the core SDK understands.

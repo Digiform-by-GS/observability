@@ -57,8 +57,16 @@ func New(ctx context.Context, opts ...Option) (*Observability, error) {
 	// WithEndpoint here instead would be a bug: the SDK also reads
 	// OTEL_EXPORTER_OTLP_ENDPOINT itself and appends "/v1/traces", so a base
 	// URL ends up requested as "/v1/traces/v1/traces" and every export 404s.
-	traceExp, err := otlptracehttp.New(ctx,
-		otlptracehttp.WithEndpointURL(cfg.Endpoint+"/v1/traces"))
+	//
+	// Headers are appended only when set, so an unset option leaves the
+	// exporter free to resolve OTEL_EXPORTER_OTLP_HEADERS from the environment.
+	traceOpts := []otlptracehttp.Option{
+		otlptracehttp.WithEndpointURL(cfg.Endpoint + "/v1/traces"),
+	}
+	if len(cfg.Headers) > 0 {
+		traceOpts = append(traceOpts, otlptracehttp.WithHeaders(cfg.Headers))
+	}
+	traceExp, err := otlptracehttp.New(ctx, traceOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("observability: trace exporter: %w", err)
 	}
@@ -68,8 +76,13 @@ func New(ctx context.Context, opts ...Option) (*Observability, error) {
 	)
 	otel.SetTracerProvider(o.tracer)
 
-	metricExp, err := otlpmetrichttp.New(ctx,
-		otlpmetrichttp.WithEndpointURL(cfg.Endpoint+"/v1/metrics"))
+	metricOpts := []otlpmetrichttp.Option{
+		otlpmetrichttp.WithEndpointURL(cfg.Endpoint + "/v1/metrics"),
+	}
+	if len(cfg.Headers) > 0 {
+		metricOpts = append(metricOpts, otlpmetrichttp.WithHeaders(cfg.Headers))
+	}
+	metricExp, err := otlpmetrichttp.New(ctx, metricOpts...)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("observability: metric exporter: %w", err), o.Shutdown(ctx))
 	}
@@ -80,8 +93,13 @@ func New(ctx context.Context, opts ...Option) (*Observability, error) {
 	)
 	otel.SetMeterProvider(o.meter)
 
-	logExp, err := otlploghttp.New(ctx,
-		otlploghttp.WithEndpointURL(cfg.Endpoint+"/v1/logs"))
+	logOpts := []otlploghttp.Option{
+		otlploghttp.WithEndpointURL(cfg.Endpoint + "/v1/logs"),
+	}
+	if len(cfg.Headers) > 0 {
+		logOpts = append(logOpts, otlploghttp.WithHeaders(cfg.Headers))
+	}
+	logExp, err := otlploghttp.New(ctx, logOpts...)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("observability: log exporter: %w", err), o.Shutdown(ctx))
 	}

@@ -26,6 +26,22 @@ type Config struct {
 	MetricInterval     time.Duration
 	LogLevel           string
 
+	// Headers are sent on every OTLP export request (all three signals) —
+	// e.g. {"Authorization": "Bearer <key>"} for an authenticated collector.
+	//
+	// Deliberately NOT resolved from OTEL_EXPORTER_OTLP_HEADERS here: the
+	// exporters read that env var themselves, including the per-signal
+	// OTEL_EXPORTER_OTLP_TRACES_HEADERS overrides. Parsing it in the wrapper
+	// would shadow that spec behaviour.
+	//
+	// DIVERGENCE FROM NODE — setting this REPLACES any headers that came from
+	// OTEL_EXPORTER_OTLP_HEADERS rather than merging with them, because
+	// upstream's otlpconfig.WithHeaders assigns the map outright. The Node
+	// package's exporters merge. Use one mechanism or the other, never both:
+	// mixing them silently drops the env-only headers in Go and keeps them in
+	// Node. Guarded by TestOTLPHeadersOptionReplacesEnvironment.
+	Headers map[string]string
+
 	// DisableRuntimeMetrics turns off Go runtime instrumentation (GC pauses,
 	// goroutine count, heap). Left on by default: those series are the single
 	// best predictor of a p99 that is about to get worse.
@@ -60,6 +76,19 @@ func WithResourceAttributes(attrs map[string]string) Option {
 		}
 		for k, v := range attrs {
 			c.ResourceAttributes[k] = v
+		}
+	}
+}
+
+// WithHeaders merges extra headers onto every OTLP export request. Mirrors the
+// Node package's `headers` option. Call it more than once and the maps merge.
+func WithHeaders(headers map[string]string) Option {
+	return func(c *Config) {
+		if c.Headers == nil {
+			c.Headers = map[string]string{}
+		}
+		for k, v := range headers {
+			c.Headers[k] = v
 		}
 	}
 }
