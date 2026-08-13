@@ -87,7 +87,7 @@ The one-paragraph version:
   `--import @digiform/observability/preload` to the start command. Zero code
   changes required; optionally swap the logger for `getLogger()`. Do **not**
   also call `initObservability()` — the preload already did.
-- **Go**: `go get github.com/digiform/observability/packages/observability-go`,
+- **Go**: `go get github.com/Digiform-by-GS/observability/packages/observability-go`,
   ~8 lines in `main()` (init + deferred shutdown), one middleware line on the
   router, switch log calls to the `...Context(ctx, ...)` variants.
 

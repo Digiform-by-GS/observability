@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	observability "github.com/digiform/observability/packages/observability-go"
+	observability "github.com/Digiform-by-GS/observability/packages/observability-go"
 	"github.com/labstack/echo/v4"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"

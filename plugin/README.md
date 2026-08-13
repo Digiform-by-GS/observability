@@ -8,7 +8,7 @@ by reading them back out of the platform.
 ## Install
 
 ```bash
-claude plugin marketplace add digiform/observability
+claude plugin marketplace add Digiform-by-GS/observability
 claude plugin install observability-onboard@digiform
 ```
 

@@ -10,7 +10,7 @@ one is installed elsewhere.
 ## Install
 
 ```bash
-go get github.com/digiform/observability/packages/observability-go
+go get github.com/Digiform-by-GS/observability/packages/observability-go
 ```
 
 ## Wire it in — `main()`
@@ -28,7 +28,7 @@ import (
     "syscall"
     "time"
 
-    observability "github.com/digiform/observability/packages/observability-go"
+    observability "github.com/Digiform-by-GS/observability/packages/observability-go"
 )
 
 func main() {
@@ -133,12 +133,12 @@ linters:
 
 ```go
 // Redis — BEFORE any command is issued; adds per-command spans + pool gauges
-import "github.com/digiform/observability/packages/observability-go/redisx"
+import "github.com/Digiform-by-GS/observability/packages/observability-go/redisx"
 client := redis.NewClient(&redis.Options{Addr: addr})
 if err := redisx.Instrument(client); err != nil { /* fail startup */ }
 
 // SQL — use the returned closer, not db.Close (it also unregisters pool stats)
-import "github.com/digiform/observability/packages/observability-go/sqlx"
+import "github.com/Digiform-by-GS/observability/packages/observability-go/sqlx"
 db, closeDB, err := sqlx.Open("pgx", dsn, "postgresql")
 defer closeDB()
 db.SetMaxOpenConns(10) // pool sizing stays the service's decision
@@ -146,7 +146,7 @@ db.SetMaxOpenConns(10) // pool sizing stays the service's decision
 // RabbitMQ — producer injects trace context; consumer starts a NEW root trace
 // LINKED to the producer (deliberate: parent-child across queues produces
 // meaningless hours-long traces; do not "fix" it)
-import obsamqp "github.com/digiform/observability/packages/observability-go/amqp"
+import obsamqp "github.com/Digiform-by-GS/observability/packages/observability-go/amqp"
 pub, _ := obsamqp.NewPublisher(ch)
 pub.Publish(ctx, "", "orders", amqp091.Publishing{Body: body})
 

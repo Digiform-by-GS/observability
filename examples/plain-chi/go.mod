@@ -1,4 +1,4 @@
-module github.com/digiform/plain-chi-example
+module github.com/Digiform-by-GS/observability/examples/plain-chi
 
 go 1.26.5
 

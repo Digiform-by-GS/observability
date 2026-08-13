@@ -21,7 +21,7 @@ import (
 	"syscall"
 	"time"
 
-	observability "github.com/digiform/observability/packages/observability-go"
+	observability "github.com/Digiform-by-GS/observability/packages/observability-go"
 	"github.com/go-chi/chi/v5"
 	"github.com/riandyrn/otelchi"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
