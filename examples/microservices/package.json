@@ -1,17 +1,17 @@
 {
-  "name": "@digiform/microservices-demo",
+  "name": "@digiform-by-gs/microservices-demo",
   "version": "0.1.0",
   "private": true,
-  "description": "Three chained Express services (checkout-api \u2192 orders \u2192 payments) wired to @digiform/observability \u2014 demonstrates cross-service trace propagation and blast-radius analysis when a downstream fails.",
+  "description": "Three chained Express services (checkout-api \u2192 orders \u2192 payments) wired to @digiform-by-gs/observability \u2014 demonstrates cross-service trace propagation and blast-radius analysis when a downstream fails.",
   "type": "module",
   "scripts": {
-    "start:payments": "PYROSCOPE_SERVER_ADDRESS=${PYROSCOPE_SERVER_ADDRESS:-http://localhost:4040} OTEL_SERVICE_NAME=payments PORT=8083 node --import tsx --import @digiform/observability/preload src/payments.ts",
-    "start:orders": "PYROSCOPE_SERVER_ADDRESS=${PYROSCOPE_SERVER_ADDRESS:-http://localhost:4040} OTEL_SERVICE_NAME=orders PORT=8082 node --import tsx --import @digiform/observability/preload src/orders.ts",
-    "start:checkout": "PYROSCOPE_SERVER_ADDRESS=${PYROSCOPE_SERVER_ADDRESS:-http://localhost:4040} OTEL_SERVICE_NAME=checkout-api PORT=8080 node --import tsx --import @digiform/observability/preload src/checkout.ts",
+    "start:payments": "PYROSCOPE_SERVER_ADDRESS=${PYROSCOPE_SERVER_ADDRESS:-http://localhost:4040} OTEL_SERVICE_NAME=payments PORT=8083 node --import tsx --import @digiform-by-gs/observability/preload src/payments.ts",
+    "start:orders": "PYROSCOPE_SERVER_ADDRESS=${PYROSCOPE_SERVER_ADDRESS:-http://localhost:4040} OTEL_SERVICE_NAME=orders PORT=8082 node --import tsx --import @digiform-by-gs/observability/preload src/orders.ts",
+    "start:checkout": "PYROSCOPE_SERVER_ADDRESS=${PYROSCOPE_SERVER_ADDRESS:-http://localhost:4040} OTEL_SERVICE_NAME=checkout-api PORT=8080 node --import tsx --import @digiform-by-gs/observability/preload src/checkout.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@digiform/observability": "*",
+    "@digiform-by-gs/observability": "*",
     "@pyroscope/nodejs": "^0.6.1",
     "express": "^4.21.1"
   },

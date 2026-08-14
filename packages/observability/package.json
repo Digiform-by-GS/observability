@@ -1,5 +1,5 @@
 {
-  "name": "@digiform/observability",
+  "name": "@digiform-by-gs/observability",
   "version": "0.1.0",
   "description": "Batteries-included OpenTelemetry wrapper for Node.js — one install, trace-correlated logs/traces/metrics over OTLP.",
   "license": "Apache-2.0",

@@ -20,3 +20,8 @@ Thumbs.db
 /examples/go-echo-service/go-echo-service-example
 *.test
 *.out
+
+# Local credential files — never commit (this repo is public)
+npmjs_token.txt
+*token*.txt
+.npmrc.local

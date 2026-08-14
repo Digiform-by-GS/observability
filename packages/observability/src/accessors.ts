@@ -31,7 +31,7 @@ export function getLogger(): Logger {
   const logger = (globalThis as GlobalWithLogger)[GLOBAL_LOGGER_KEY];
   if (!logger) {
     throw new Error(
-      '[@digiform/observability] getLogger() called before initObservability(). Call initObservability first.',
+      '[@digiform-by-gs/observability] getLogger() called before initObservability(). Call initObservability first.',
     );
   }
   return logger;

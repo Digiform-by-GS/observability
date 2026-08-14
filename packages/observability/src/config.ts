@@ -8,7 +8,7 @@ export function resolveConfig(options: ObservabilityOptions = {}): ResolvedConfi
 
   if (!serviceName) {
     throw new Error(
-      '[@digiform/observability] serviceName is required. Pass it via initObservability({ serviceName }) or set OTEL_SERVICE_NAME.',
+      '[@digiform-by-gs/observability] serviceName is required. Pass it via initObservability({ serviceName }) or set OTEL_SERVICE_NAME.',
     );
   }
 

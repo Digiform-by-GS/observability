@@ -1,4 +1,4 @@
-# @digiform/observability
+# @digiform-by-gs/observability
 
 Batteries-included OpenTelemetry wrapper for Node.js. One install, two lines of code, and your service emits trace-correlated logs, traces, and metrics over OTLP/HTTP.
 
@@ -7,7 +7,7 @@ Pairs with the LGTM + OTel Collector stack in the root of this repo.
 ## Install
 
 ```bash
-npm install @digiform/observability
+npm install @digiform-by-gs/observability
 ```
 
 Node 18.19+ or 20.6+ (floor set by `@opentelemetry/sdk-node`). ESM only — your service needs
@@ -18,7 +18,7 @@ Node 18.19+ or 20.6+ (floor set by `@opentelemetry/sdk-node`). ESM only — your
 ```ts
 // Must be the FIRST thing your entry file does, before any other imports that
 // you want instrumented (express, http, pg, etc).
-import { initObservability } from '@digiform/observability';
+import { initObservability } from '@digiform-by-gs/observability';
 
 const obs = initObservability({
   serviceName: 'my-service',
@@ -26,7 +26,7 @@ const obs = initObservability({
 });
 
 import express from 'express';
-import { getLogger } from '@digiform/observability';
+import { getLogger } from '@digiform-by-gs/observability';
 
 const app = express();
 const log = getLogger();
@@ -46,7 +46,7 @@ process.on('beforeExit', () => obs.shutdown());
 The inline pattern above only works if nothing in your module graph gets imported before `initObservability()`. For real apps, use the preload entry:
 
 ```bash
-node --import @digiform/observability/preload src/index.js
+node --import @digiform-by-gs/observability/preload src/index.js
 ```
 
 This package is **ESM-only** — there is no CommonJS build. `--require` fails with

@@ -89,7 +89,7 @@ router-middleware section and fix it before declaring victory.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Nothing arrives at all | Endpoint unset → defaulting to `localhost:4318`; or wrong port; or firewall | Set `OTEL_EXPORTER_OTLP_ENDPOINT` from platform.json; `curl {otlp_http}/v1/traces` expects HTTP 405 on GET (proves reachability) |
-| Traces yes, logs missing trace_id (Node) | Preload flag missing, or a worker-thread log transport was added | Restore `--import @digiform/observability/preload`; remove pino transports |
+| Traces yes, logs missing trace_id (Node) | Preload flag missing, or a worker-thread log transport was added | Restore `--import @digiform-by-gs/observability/preload`; remove pino transports |
 | Traces yes, logs missing trace_id (Go) | `logger.Info` instead of `InfoContext(ctx, ...)` | Convert call sites; add sloglint |
 | Each service traces alone, nothing joins (Go) | Global propagator not set (a raw OTel setup, or init happens after first request) | Ensure `observability.New()` runs in `main` before serving |
 | Every OTLP export 404s (custom Go setup) | Exporter configured with endpoint+path so the SDK appends the path twice (`/v1/traces/v1/traces`) | Use the library defaults; endpoint is the *base* URL |

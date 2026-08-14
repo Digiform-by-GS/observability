@@ -18,12 +18,12 @@ export function registerShutdown(sdk: NodeSDK, logger: Logger | null): ShutdownH
       await sdk.shutdown();
     } catch (err) {
       // Best-effort; continue flushing the logger even if SDK shutdown fails.
-      console.error('[@digiform/observability] sdk.shutdown() failed:', err);
+      console.error('[@digiform-by-gs/observability] sdk.shutdown() failed:', err);
     }
     if (logger) {
       await new Promise<void>((resolve) => {
         logger.flush((err) => {
-          if (err) console.error('[@digiform/observability] logger.flush() failed:', err);
+          if (err) console.error('[@digiform-by-gs/observability] logger.flush() failed:', err);
           resolve();
         });
       });

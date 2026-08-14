@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   node:
-    name: Node (@digiform/observability)
+    name: Node (@digiform-by-gs/observability)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,15 +24,15 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Build wrapper
-        run: npm run -w @digiform/observability build
+        run: npm run -w @digiform-by-gs/observability build
       - name: Test wrapper (vitest)
-        run: npm run -w @digiform/observability test
+        run: npm run -w @digiform-by-gs/observability test
       - name: Typecheck wrapper
-        run: npm run -w @digiform/observability typecheck
+        run: npm run -w @digiform-by-gs/observability typecheck
       - name: Typecheck examples
         run: |
-          npm run -w @digiform/nodejs-sample typecheck
-          npm run -w @digiform/microservices-demo typecheck
+          npm run -w @digiform-by-gs/nodejs-sample typecheck
+          npm run -w @digiform-by-gs/microservices-demo typecheck
 
   go:
     name: Go (observability-go + examples)

@@ -14,7 +14,7 @@ Node process. **Next.js is different — see the last section.**
 ## Install
 
 ```bash
-npm install @digiform/observability
+npm install @digiform-by-gs/observability
 ```
 
 ## Wire it in — the preload (always prefer this)
@@ -25,15 +25,15 @@ Add the import flag to the start command, before the entrypoint:
 // package.json
 "scripts": {
   // before:  "start": "node src/index.js"
-  "start": "node --import @digiform/observability/preload src/index.js"
+  "start": "node --import @digiform-by-gs/observability/preload src/index.js"
 }
 ```
 
 - `tsx`/`ts-node` users: keep their loader flag *and* add this one:
-  `node --import tsx --import @digiform/observability/preload src/index.ts`.
+  `node --import tsx --import @digiform-by-gs/observability/preload src/index.ts`.
 - Dockerfiles: change `CMD`/`ENTRYPOINT` the same way.
 - Process managers (pm2, systemd): add the flag to the interpreter args, or set
-  `NODE_OPTIONS="--import @digiform/observability/preload"` in the unit's env.
+  `NODE_OPTIONS="--import @digiform-by-gs/observability/preload"` in the unit's env.
 
 That's the whole integration. HTTP servers, `fetch`/http clients, pg, redis,
 amqplib and the rest of the auto-instrumentation set are traced with **zero code
@@ -53,7 +53,7 @@ The package ships a pino logger whose records are automatically stamped with
 `trace_id`/`span_id` when emitted inside a request:
 
 ```ts
-import { getLogger } from '@digiform/observability';
+import { getLogger } from '@digiform-by-gs/observability';
 const log = getLogger();
 
 log.info({ orderId, amount }, 'order created');
@@ -93,7 +93,7 @@ Set per the shared contract in SKILL.md Step 2. Node specifics:
 
 The wrapper's dependency tree (sdk-node, pino, auto-instrumentations) is exactly
 what Next's bundler and Edge runtime reject. Do **not** install
-`@digiform/observability` in a Next.js app. Instead:
+`@digiform-by-gs/observability` in a Next.js app. Instead:
 
 ```bash
 npm install @vercel/otel

@@ -1,6 +1,6 @@
 // Package observability wires OpenTelemetry traces, metrics, and logs to an
 // OTLP/HTTP collector with one call, mirroring the env-var contract of the
-// @digiform/observability Node package.
+// @digiform-by-gs/observability Node package.
 //
 // Unlike the Node package there is no preload entry point, because Go
 // instrumentation is explicit wrapping rather than module patching — the

@@ -58,7 +58,7 @@ Consequences:
 ### Node
 
 ```ts
-import { getTracer, getMeter, getLogger } from '@digiform/observability';
+import { getTracer, getMeter, getLogger } from '@digiform-by-gs/observability';
 import { SpanStatusCode } from '@opentelemetry/api';
 
 const tracer = getTracer('vouchers');

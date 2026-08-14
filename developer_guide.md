@@ -3,7 +3,7 @@
 How to add observability to a service, for both stacks this baseline supports.
 One environment-variable contract, two libraries:
 
-- **Node.js / TypeScript** → the `@digiform/observability` npm package
+- **Node.js / TypeScript** → the `@digiform-by-gs/observability` npm package
 - **Go** → the `observability-go` module
 - **Next.js (server-side)** → `@vercel/otel` inline (no wrapper — see the end)
 
@@ -24,7 +24,7 @@ else, so your library version is **decoupled from the backend versions** — you
 can upgrade the wrapper without touching Loki/Tempo/Mimir, and vice versa. OTLP
 is a stable, backward-compatible protocol.
 
-### Node — `@digiform/observability@0.1.0`
+### Node — `@digiform-by-gs/observability@0.1.0`
 
 | Requirement | Version | Notes |
 |---|---|---|
@@ -63,12 +63,12 @@ the Collector on `:4318`** (HTTP) — you never address a backend directly.
 
 ---
 
-## Node.js — `@digiform/observability`
+## Node.js — `@digiform-by-gs/observability`
 
 ### 1. Install
 
 ```bash
-npm install @digiform/observability
+npm install @digiform-by-gs/observability
 ```
 
 Ensure your `package.json` has `"type": "module"`.
@@ -80,7 +80,7 @@ before the SDK starts is never traced. The `--import` preload guarantees the SDK
 initializes first — nothing to call, nothing to order:
 
 ```bash
-node --import @digiform/observability/preload src/index.js
+node --import @digiform-by-gs/observability/preload src/index.js
 ```
 
 Configure entirely through environment variables (see [the contract](#the-shared-environment-variable-contract)):
@@ -89,7 +89,7 @@ Configure entirely through environment variables (see [the contract](#the-shared
 OTEL_SERVICE_NAME=orders \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
 OTEL_DEPLOYMENT_ENVIRONMENT=production \
-node --import @digiform/observability/preload src/index.js
+node --import @digiform-by-gs/observability/preload src/index.js
 ```
 
 **Inline init (fallback)** — only when you need config that can't come from env
@@ -97,7 +97,7 @@ vars. It is fragile: `initObservability()` must run before *every* other import,
 which a single hoisted `import` silently breaks.
 
 ```ts
-import { initObservability } from '@digiform/observability';
+import { initObservability } from '@digiform-by-gs/observability';
 const obs = initObservability({ serviceName: 'orders' });
 
 // only now import instrumented libraries
@@ -135,7 +135,7 @@ an active span is auto-stamped with `trace_id`/`span_id`. Throws if called befor
 init (can't happen with the preload).
 
 ```ts
-import { getLogger } from '@digiform/observability';
+import { getLogger } from '@digiform-by-gs/observability';
 const log = getLogger();
 
 log.info({ orderId, amount }, 'order created');   // structured fields first
@@ -148,7 +148,7 @@ log.error({ err: { message: e.message, stack: e.stack } }, 'checkout failed');
 #### `getTracer(name, version?): Tracer` — custom spans
 
 ```ts
-import { getTracer } from '@digiform/observability';
+import { getTracer } from '@digiform-by-gs/observability';
 import { SpanStatusCode } from '@opentelemetry/api';
 const tracer = getTracer('orders');
 
@@ -169,7 +169,7 @@ await tracer.startActiveSpan('reconcile-ledger', async (span) => {
 #### `getMeter(name, version?): Meter` — custom metrics
 
 ```ts
-import { getMeter } from '@digiform/observability';
+import { getMeter } from '@digiform-by-gs/observability';
 const meter = getMeter('orders');
 
 const created = meter.createCounter('app.orders.created', { description: 'Orders created.' });
@@ -180,8 +180,8 @@ Create instruments **once at module scope**, never per request.
 
 ### 4. Migrating an existing Node service
 
-1. `npm install @digiform/observability`; set `"type": "module"` if not already.
-2. Change your start command to `node --import @digiform/observability/preload …`.
+1. `npm install @digiform-by-gs/observability`; set `"type": "module"` if not already.
+2. Change your start command to `node --import @digiform-by-gs/observability/preload …`.
 3. Set `OTEL_SERVICE_NAME` + `OTEL_EXPORTER_OTLP_ENDPOINT`.
 4. Replace ad-hoc `console.log`/existing logger with `getLogger()`.
 5. Add `getTracer()` spans around meaningful business operations (I/O is already
@@ -627,7 +627,7 @@ func (s *Service) RedeemVoucher(ctx context.Context, code string, orderID string
 **TypeScript (Node):**
 
 ```ts
-import { getTracer, getMeter, getLogger } from '@digiform/observability';
+import { getTracer, getMeter, getLogger } from '@digiform-by-gs/observability';
 import { SpanStatusCode } from '@opentelemetry/api';
 
 const tracer = getTracer('vouchers');

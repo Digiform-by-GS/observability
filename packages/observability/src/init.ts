@@ -30,7 +30,7 @@ function markStarted(value: boolean): void {
 export function initObservability(options: ObservabilityOptions = {}): ObservabilityHandle {
   if (isStarted()) {
     console.warn(
-      '[@digiform/observability] initObservability() called more than once — ignoring subsequent call.',
+      '[@digiform-by-gs/observability] initObservability() called more than once — ignoring subsequent call.',
     );
     return { shutdown: async () => {} };
   }

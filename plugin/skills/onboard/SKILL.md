@@ -83,8 +83,8 @@ platform.json.
 
 The one-paragraph version:
 
-- **Node**: `npm install @digiform/observability`, then add
-  `--import @digiform/observability/preload` to the start command. Zero code
+- **Node**: `npm install @digiform-by-gs/observability`, then add
+  `--import @digiform-by-gs/observability/preload` to the start command. Zero code
   changes required; optionally swap the logger for `getLogger()`. Do **not**
   also call `initObservability()` — the preload already did.
 - **Go**: `go get github.com/Digiform-by-GS/observability/packages/observability-go`,
