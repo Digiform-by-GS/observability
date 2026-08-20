@@ -8,6 +8,7 @@ import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 
+import { registerEsmHook } from './esm-hook.js';
 import { resolveConfig } from './config.js';
 import { buildResource } from './resource.js';
 import { createLogger } from './logging.js';
@@ -34,6 +35,10 @@ export function initObservability(options: ObservabilityOptions = {}): Observabi
     );
     return { shutdown: async () => {} };
   }
+
+  // Also registered here, not only in the preload, so the inline-init path gets
+  // userland instrumentation too. Idempotent — the preload already called it.
+  registerEsmHook();
 
   const config = resolveConfig(options);
   const resource = buildResource(config);

@@ -120,6 +120,7 @@ Plus any `OTEL_*` env var the core SDK understands.
 | "getLogger() called before initObservability()" | Move `initObservability()` above the offending import, or switch to the preload pattern. |
 | Logs arrive in Loki without `service_name` label | You're using the preload with no `OTEL_SERVICE_NAME` set. Set it. |
 | Traces arrive but instrumentation is missing for a library | Likely imported before `initObservability()` ran. Use preload. |
+| Server spans named `GET`/`POST` with no route, so every endpoint shares one metric series | The ESM loader hook is not active — express/fastify/pg/redis load unpatched while core `http` still works, so it looks instrumented. Needs **≥ 0.1.2**, which registers the hook. Confirm with `OTEL_LOG_LEVEL=debug`: you should see `instrumentation-express Applying instrumentation patch`. |
 | No data anywhere | Is the Collector running and reachable on `$OTEL_EXPORTER_OTLP_ENDPOINT`? `curl $OTEL_EXPORTER_OTLP_ENDPOINT/v1/traces -d '{}' -H 'Content-Type: application/json'` should return 200. |
 
 ## Graceful shutdown

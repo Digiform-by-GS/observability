@@ -39,6 +39,14 @@ That's the whole integration. HTTP servers, `fetch`/http clients, pg, redis,
 amqplib and the rest of the auto-instrumentation set are traced with **zero code
 changes**, and outbound requests carry `traceparent` automatically.
 
+**Require `@digiform-by-gs/observability` ≥ 0.1.2.** Earlier versions did not
+register OpenTelemetry's ESM loader hook, so in an ESM service every userland
+package (express, fastify, pg, redis) loaded unpatched. Core `http` was still
+instrumented, so traces appeared and the service looked correctly onboarded —
+but server spans were named after the bare method (`GET`, `POST`) with no
+`http.route`, and every endpoint collapsed into a single metric series. If a
+service was onboarded on an older version, bump it and re-run verify.
+
 **Never call `initObservability()` when the preload flag is present.** The
 preload already initialized; a second call logs a warning and no-ops, but code
 that *depends* on calling it (e.g. to pass options) conflicts with the preload

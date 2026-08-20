@@ -36,3 +36,7 @@ npmjs_token.txt
 *.so
 *.dylib
 *.test
+
+# Transient dir created by the ESM-hook integration test (inside the package
+# because ESM resolution needs node_modules above it, not the OS temp dir).
+packages/observability/.esm-hook-test-*/
