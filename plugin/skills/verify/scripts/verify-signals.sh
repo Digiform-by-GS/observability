@@ -22,7 +22,9 @@ field() {
   else sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$CFG" | head -1; fi
 }
 OTLP="$(field otlp_http)"; GRAFANA="$(field grafana)"
-[ -n "$OTLP" ] && [ -n "$GRAFANA" ] || { echo "ERROR: otlp_http/grafana missing from $CFG"; exit 2; }
+if [ -z "$OTLP" ] || [ -z "$GRAFANA" ]; then
+  echo "ERROR: otlp_http/grafana missing from $CFG"; exit 2
+fi
 
 AUTH=()
 [ -n "${GRAFANA_SA_TOKEN:-}" ] && AUTH=(-H "Authorization: Bearer $GRAFANA_SA_TOKEN")
@@ -49,23 +51,25 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$OTLP/v1/traces" -H 'cont
  \"resourceSpans\":[{\"resource\":$RES,\"scopeSpans\":[{\"spans\":[{
    \"traceId\":\"$TID\",\"spanId\":\"$SID\",\"name\":\"GET /verify\",\"kind\":2,
    \"startTimeUnixNano\":\"$NOW\",\"endTimeUnixNano\":\"$NOW\"}]}]}]}")
-[ "$code" = "200" ] && note "push trace"  "OK" || bad "push trace" "HTTP $code from $OTLP/v1/traces"
+if [ "$code" = "200" ]; then note "push trace" "OK"; else bad "push trace" "HTTP $code from $OTLP/v1/traces"; fi
 
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$OTLP/v1/logs" -H 'content-type: application/json' -d "{
  \"resourceLogs\":[{\"resource\":$RES,\"scopeLogs\":[{\"logRecords\":[{
    \"timeUnixNano\":\"$NOW\",\"severityText\":\"INFO\",
    \"body\":{\"stringValue\":\"signal verification\"},
    \"traceId\":\"$TID\",\"spanId\":\"$SID\"}]}]}]}")
-[ "$code" = "200" ] && note "push log"    "OK" || bad "push log" "HTTP $code"
+if [ "$code" = "200" ]; then note "push log" "OK"; else bad "push log" "HTTP $code"; fi
 
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$OTLP/v1/metrics" -H 'content-type: application/json' -d "{
  \"resourceMetrics\":[{\"resource\":$RES,\"scopeMetrics\":[{\"metrics\":[{
    \"name\":\"verify_signals\",\"sum\":{\"dataPoints\":[{\"asInt\":\"1\",
    \"startTimeUnixNano\":\"$NOW\",\"timeUnixNano\":\"$NOW\"}],
    \"aggregationTemporality\":2,\"isMonotonic\":true}}]}]}]}")
-[ "$code" = "200" ] && note "push metric" "OK" || bad "push metric" "HTTP $code"
+if [ "$code" = "200" ]; then note "push metric" "OK"; else bad "push metric" "HTTP $code"; fi
 
-[ "$FAIL" = "0" ] || { echo; echo "Push failed — network/endpoint problem; read-back skipped."; exit 1; }
+if [ "$FAIL" != "0" ]; then
+  echo; echo "Push failed — network/endpoint problem; read-back skipped."; exit 1
+fi
 echo "waiting 20s for batching + ingest..."; sleep 20; echo
 
 # --- read back through the Grafana datasource proxy --------------------------
@@ -75,32 +79,43 @@ PROXY="$GRAFANA/api/datasources/proxy/uid"
 hex2b64() { local h="$1" e=""; while [ -n "$h" ]; do e="$e\\x${h:0:2}"; h="${h:2}"; done; printf '%b' "$e" | base64; }
 SID_B64="$(hex2b64 "$SID")"
 body=$(curl -s "${AUTH[@]}" "$PROXY/tempo/api/traces/$TID")
-echo "$body" | grep -qF "$SID_B64" \
-  && note "trace read back (Tempo)" "OK" \
-  || bad  "trace read back (Tempo)" "span $SID ($SID_B64) not in response"
+if echo "$body" | grep -qF "$SID_B64"; then
+  note "trace read back (Tempo)" "OK"
+else
+  bad "trace read back (Tempo)" "span $SID ($SID_B64) not in response"
+fi
 
 START="$(( $(date +%s) - 600 ))000000000"
 body=$(curl -s "${AUTH[@]}" --get "$PROXY/loki/loki/api/v1/query_range" \
   --data-urlencode "query={service_name=\"$SVC\"}" --data-urlencode "start=$START")
-echo "$body" | grep -q "signal verification" \
-  && note "log read back (Loki)" "OK" \
-  || bad  "log read back (Loki)" "log line not returned"
+if echo "$body" | grep -q "signal verification"; then
+  note "log read back (Loki)" "OK"
+else
+  bad "log read back (Loki)" "log line not returned"
+fi
 
 # trace_id lives in queryable metadata, not the body; 0* absorbs stripped zeros.
 body=$(curl -s "${AUTH[@]}" --get "$PROXY/loki/loki/api/v1/query_range" \
   --data-urlencode "query={service_name=\"$SVC\"} | trace_id=~\`0*$TID\`" --data-urlencode "start=$START")
-echo "$body" | grep -q "signal verification" \
-  && note "log<->trace correlation" "OK" \
-  || bad  "log<->trace correlation" "no log matched trace_id=$TID"
+if echo "$body" | grep -q "signal verification"; then
+  note "log<->trace correlation" "OK"
+else
+  bad "log<->trace correlation" "no log matched trace_id=$TID"
+fi
 
 # Monotonic sums arrive with a _total suffix.
 body=$(curl -s "${AUTH[@]}" --get "$PROXY/prometheus/api/v1/query" \
   --data-urlencode "query=verify_signals_total{service_name=\"$SVC\"}")
-echo "$body" | grep -q "verify_signals_total" \
-  && note "metric read back (Mimir)" "OK" \
-  || bad  "metric read back (Mimir)" "series not found (queried verify_signals_total)"
+if echo "$body" | grep -q "verify_signals_total"; then
+  note "metric read back (Mimir)" "OK"
+else
+  bad "metric read back (Mimir)" "series not found (queried verify_signals_total)"
+fi
 
 echo
-[ "$FAIL" = "0" ] && echo "STAGE A PASSED — pipeline works from this machine. Now run Stage B (the real app)." \
-                  || echo "STAGE A FAILED — see FAIL lines; consult the skill's troubleshooting table."
+if [ "$FAIL" = "0" ]; then
+  echo "STAGE A PASSED — pipeline works from this machine. Now run Stage B (the real app)."
+else
+  echo "STAGE A FAILED — see FAIL lines; consult the skill's troubleshooting table."
+fi
 exit "$FAIL"

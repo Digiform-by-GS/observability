@@ -73,21 +73,21 @@ jobs:
       # stylistic — it catches uncorrelated logs the compiler accepts. Lint both
       # modules; they are separate go.mod roots.
       - name: Lint module
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.2
           working-directory: packages/observability-go
           args: --config ${{ github.workspace }}/.golangci.yml
 
       - name: Lint example (chi)
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.2
           working-directory: examples/go-service
           args: --config ${{ github.workspace }}/.golangci.yml
 
       - name: Lint example (Echo)
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.2
           working-directory: examples/go-echo-service
