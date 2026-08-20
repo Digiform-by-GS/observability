@@ -124,4 +124,8 @@ Plus any `OTEL_*` env var the core SDK understands.
 
 ## Graceful shutdown
 
-`initObservability()` registers `SIGTERM` and `SIGINT` handlers that flush pending spans, metrics, and logs before exit. You can also call `handle.shutdown()` yourself — e.g. from `beforeExit` — if you want to control the shutdown path.
+`initObservability()` registers `SIGTERM`, `SIGINT`, and `beforeExit` handlers that flush pending spans, metrics, and logs before exit. You can also call `handle.shutdown()` yourself if you want to control the shutdown path.
+
+The `beforeExit` handler is what covers **short-lived processes** — CLI tools, cron jobs, migrations, seed scripts, test harnesses. They receive no signal, so before 0.1.1 they exited while the batch processors still held their telemetry and everything was lost silently, with no error and nothing in the collector log. Long-running servers were never affected because they get `SIGTERM`.
+
+Two cases `beforeExit` cannot cover, by Node's design: an explicit `process.exit()`, and an uncaught exception. If your script calls `process.exit()`, `await handle.shutdown()` first — or drop the explicit exit and let the process end naturally.

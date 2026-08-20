@@ -89,6 +89,8 @@ router-middleware section and fix it before declaring victory.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Nothing arrives at all | Endpoint unset → defaulting to `localhost:4318`; or wrong port; or firewall | Set `OTEL_EXPORTER_OTLP_ENDPOINT` from platform.json; `curl {otlp_http}/v1/traces` expects HTTP 405 on GET (proves reachability) |
+| Nothing arrives, but **only for a short-lived script** (CLI, cron, migration, seed) | The process exited before the batch processors flushed. Telemetry is batched, not sent per-call, so a script finishing in milliseconds sends nothing — and nothing errors | Node: needs `@digiform-by-gs/observability` **≥ 0.1.1**, which flushes on `beforeExit`. If the script calls `process.exit()` explicitly, `beforeExit` never fires — remove it or `await handle.shutdown()` first. Go: the deferred `obs.Shutdown(ctx)` already covers this |
+| Signals unreachable from a client machine on a VPN | A full-tunnel VPN (`AllowedIPs = 0.0.0.0/0`) captures the default route and can starve an overlay network (ZeroTier/Tailscale) of its peer-discovery traffic | Check which interface serves general traffic; if it's the VPN, disconnect it or make it split-tunnel. Overlay peers may take ~1 min to re-establish afterwards |
 | Traces yes, logs missing trace_id (Node) | Preload flag missing, or a worker-thread log transport was added | Restore `--import @digiform-by-gs/observability/preload`; remove pino transports |
 | Traces yes, logs missing trace_id (Go) | `logger.Info` instead of `InfoContext(ctx, ...)` | Convert call sites; add sloglint |
 | Each service traces alone, nothing joins (Go) | Global propagator not set (a raw OTel setup, or init happens after first request) | Ensure `observability.New()` runs in `main` before serving |

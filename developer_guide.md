@@ -751,6 +751,13 @@ Mimir's limits in this stack are configured to reject you, loudly).
   emit `camelCase`. A query spanning both must handle both.
 - **Always flush on shutdown** — Node's handle and Go's `Shutdown` both do this;
   call them (Go) / let the preload's handlers fire (Node).
+- **Short-lived processes need the flush too.** Telemetry is batched, not sent
+  per call, so a script that finishes in milliseconds exits with its spans and
+  logs still in the buffer — delivering nothing, erroring nowhere. Node ≥ 0.1.1
+  flushes on `beforeExit`, which covers natural exit but *not* an explicit
+  `process.exit()` (await `handle.shutdown()` first, or just let the process
+  end). Go's deferred `obs.Shutdown(ctx)` already covers it. Long-running
+  servers were never affected, which is why this is easy to miss.
 
 ---
 
