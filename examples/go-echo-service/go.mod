@@ -1,6 +1,6 @@
 module github.com/Digiform-by-GS/observability/examples/go-echo-service
 
-go 1.26.5
+go 1.25.0
 
 replace github.com/Digiform-by-GS/observability/packages/observability-go => ../../packages/observability-go
 
