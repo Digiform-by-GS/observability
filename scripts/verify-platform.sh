@@ -9,7 +9,9 @@
 #
 # Exits non-zero if any check fails, so it is safe to run from CI or a cron.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+# || exit: a failed cd would otherwise run every docker compose command below
+# against whatever directory the caller happened to be in.
+cd "$(dirname "$0")/.." || exit 1
 
 C=(docker compose -f docker-compose.yml -f docker-compose.platform.yml)
 NET="$(docker network ls --format '{{.Name}}' | grep -m1 obs)"
@@ -102,34 +104,45 @@ sleep 20
 # real round-trip check: the exact span we emitted came back.
 hex2b64() { local h="$1" e=""; while [ -n "$h" ]; do e="$e\\x${h:0:2}"; h="${h:2}"; done; printf '%b' "$e" | base64; }
 SID_B64="$(hex2b64 "$SID")"
-inet "http://tempo:3200/api/traces/$TID" | grep -qF "$SID_B64" \
-  && note "trace readable from Tempo" "OK" \
-  || bad  "trace readable from Tempo" "span $SID ($SID_B64) not found for trace $TID"
+if inet "http://tempo:3200/api/traces/$TID" | grep -qF "$SID_B64"; then
+  note "trace readable from Tempo" "OK"
+else
+  bad "trace readable from Tempo" "span $SID ($SID_B64) not found for trace $TID"
+fi
 
-inet --get http://loki:3100/loki/api/v1/query_range \
+if inet --get http://loki:3100/loki/api/v1/query_range \
      --data-urlencode "query={service_name=\"$SVC\"}" \
      --data-urlencode "start=$(( $(date +%s) - 600 ))000000000" \
-  | grep -q "platform verification" \
-  && note "log readable from Loki" "OK" \
-  || bad  "log readable from Loki" "log line not returned"
+   | grep -q "platform verification"; then
+  note "log readable from Loki" "OK"
+else
+  bad "log readable from Loki" "log line not returned"
+fi
 
 # Correlation is what makes the logs useful — trace_id is stored as structured
 # metadata, not in the body, which is why the Grafana derived field matches on
 # a label rather than a body regex.
-inet --get http://loki:3100/loki/api/v1/query_range \
+if inet --get http://loki:3100/loki/api/v1/query_range \
      --data-urlencode "query={service_name=\"$SVC\"} | trace_id=~\`0*$TID\`" \
      --data-urlencode "start=$(( $(date +%s) - 600 ))000000000" \
-  | grep -q "platform verification" \
-  && note "log carries trace_id (correlation)" "OK" \
-  || bad  "log carries trace_id (correlation)" "no log matched trace_id=$TID"
+   | grep -q "platform verification"; then
+  note "log carries trace_id (correlation)" "OK"
+else
+  bad "log carries trace_id (correlation)" "no log matched trace_id=$TID"
+fi
 
 SERIES="$(inet --get http://mimir:9009/prometheus/api/v1/series --data-urlencode 'match[]=platform_smoke_total')"
-grep -q platform_smoke_total <<<"$SERIES" \
-  && note "metric readable from Mimir" "OK" \
-  || bad  "metric readable from Mimir" "series not found"
-grep -qE 'service_instance_id|process_pid' <<<"$SERIES" \
-  && bad  "high-cardinality labels pruned" "service_instance_id/process_pid reached Mimir" \
-  || note "high-cardinality labels pruned" "OK"
+if grep -q platform_smoke_total <<<"$SERIES"; then
+  note "metric readable from Mimir" "OK"
+else
+  bad "metric readable from Mimir" "series not found"
+fi
+# Inverted on purpose: finding these labels is the failure.
+if grep -qE 'service_instance_id|process_pid' <<<"$SERIES"; then
+  bad "high-cardinality labels pruned" "service_instance_id/process_pid reached Mimir"
+else
+  note "high-cardinality labels pruned" "OK"
+fi
 
 echo
 echo "=== 5. memory headroom ==="
@@ -137,5 +150,9 @@ docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
 free -h | head -2
 
 echo
-[ "$FAIL" -eq 0 ] && echo "ALL CHECKS PASSED" || echo "SOME CHECKS FAILED (see FAIL lines above)"
+if [ "$FAIL" -eq 0 ]; then
+  echo "ALL CHECKS PASSED"
+else
+  echo "SOME CHECKS FAILED (see FAIL lines above)"
+fi
 exit "$FAIL"
