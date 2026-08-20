@@ -1,0 +1,129 @@
+# Overlay for the SHARED PLATFORM deployment (the VM at 20.20.1.88), layered on
+# top of docker-compose.yml. Local development is unaffected — it keeps using
+# docker-compose.yml alone.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.platform.yml up -d
+#
+# Requires Compose >= 2.24 for the `!reset` / `!override` merge tags.
+#
+# What this overlay changes, and why:
+#
+#   1. Demo fixtures become opt-in. redis/postgres/rabbitmq/go-service are
+#      example dependencies, not platform components. The base file gives them
+#      no profile, so a plain `up -d` starts all fourteen containers — 3.72 GB
+#      of mem_limit against a host that does not have it. Assigning them the
+#      `demo` profile here excludes them by default; `--profile demo` still
+#      brings them up if you ever want the examples on this host.
+#
+#   2. Memory rebalanced toward Mimir. See the mimir block.
+#
+#   3. Backend APIs come off the host network. See the loki/tempo/mimir blocks.
+#
+#   4. Grafana stops handing out anonymous Admin. See the grafana block.
+#
+#   5. Everything restarts on boot — this is a service now, not a laptop stack.
+
+services:
+  # --- demo fixtures: present but not started by default ---------------------
+  redis:
+    profiles: [demo]
+  postgres:
+    profiles: [demo]
+  rabbitmq:
+    profiles: [demo]
+  go-service:
+    profiles: [demo]
+
+  # --- platform ---------------------------------------------------------------
+  loki:
+    restart: unless-stopped
+    mem_limit: 768m
+    # Grafana reaches Loki over the `obs` network as http://loki:3100. Publishing
+    # it on the host as well would expose an unauthenticated push+query API to
+    # the whole LAN, letting anyone write logs straight into the backend and
+    # bypass every guardrail the collector applies. Query it via Grafana; for
+    # host-side debugging use `docker compose exec` or a temporary -p mapping.
+    ports: !reset []
+
+  tempo:
+    restart: unless-stopped
+    mem_limit: 1024m
+    # Same reasoning as Loki. Note this is Tempo's :3200 query API — its OTLP
+    # ingest ports were never published to the host in the base file either;
+    # traces arrive via the collector, which is the only intended front door.
+    ports: !reset []
+
+  mimir:
+    restart: unless-stopped
+    # 512m could not back the guardrail it was paired with. mimir-config.yaml
+    # caps at max_global_series_per_user: 150000, and its comment states the
+    # intent plainly: "a limit that rejects loudly beats silent unbounded
+    # growth." At roughly 3 KB per active series the ingester alone needs
+    # ~450 MB to hold that many, so at 512m the kernel OOM killer always won
+    # the race and the cap never got to reject anything — silent death instead
+    # of a loud 4xx. 2 GB puts real memory behind the number.
+    #
+    # Mimir runs monolithically here (target: all,alertmanager,overrides-exporter),
+    # so this budget also covers querier, compactor, ruler and alertmanager.
+    mem_limit: 2048m
+    ports: !reset []
+
+  pyroscope:
+    restart: unless-stopped
+    mem_limit: 512m
+    # Port 4040 is inherited from the base file and stays published: per
+    # CLAUDE.md, profiles bypass the collector entirely because OTLP profiling
+    # is still experimental, so developer SDKs push here directly. Front door by
+    # design.
+
+  otel-collector:
+    restart: unless-stopped
+    mem_limit: 512m
+    # Swap in the platform config: no demo-fixture receivers, plus the
+    # resource-label pruning that keeps one team's restart loop from minting
+    # unbounded series for everyone. !override because Compose merges volume
+    # lists by appending, which would otherwise mount two files on one path.
+    volumes: !override
+      - ./infra/otel-collector/config.platform.yaml:/etc/otel-collector-config.yaml:ro
+    environment:
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-shared-dev}
+    # 4317/4318 stay on 0.0.0.0 — this is the developer-facing ingest endpoint,
+    # the whole point of the deployment. 8888 is collector self-telemetry and is
+    # pulled by nothing off-host, so it drops to loopback.
+    ports: !override
+      - "4317:4317"     # OTLP gRPC  — developer ingest
+      - "4318:4318"     # OTLP HTTP  — developer ingest
+      - "127.0.0.1:8888:8888"   # self-metrics, host-local only
+    depends_on: !override
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+      mimir:
+        condition: service_started
+
+  grafana:
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      # grafana.ini ships auth.anonymous org_role=Admin with the login form
+      # disabled — correct for a laptop, unacceptable the moment the port faces
+      # other people: every visitor is a full admin and there is no way to
+      # authenticate as anyone else. Env vars override the ini file, so this
+      # hardens the shared deployment without forking grafana.ini or changing
+      # local dev.
+      #
+      # Anonymous access is KEPT, at Viewer, deliberately: it preserves the
+      # zero-friction "just open the dashboard" experience for developers while
+      # removing the ability to edit datasources, delete dashboards, or read the
+      # admin API. Set GF_AUTH_ANONYMOUS_ENABLED=false in .env to require a
+      # login for viewing too.
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS:-true}
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      # No default on purpose: `:?` makes Compose refuse to start rather than
+      # silently deploy a known password.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    # Port 3000 is inherited from the base file.

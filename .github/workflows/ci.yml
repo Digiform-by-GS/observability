@@ -119,8 +119,13 @@ jobs:
           done
           exit $fail
 
-      - name: shellcheck verify script
-        run: shellcheck plugin/skills/verify/scripts/*.sh
+      # Every shell script in the repo, not just the plugin's. Both of these
+      # scripts report PASS/FAIL on whether telemetry is working, so a silent
+      # logic bug in one is worse than a broken build: it reports success that
+      # nobody has any reason to doubt. scripts/verify-platform.sh drifted to
+      # 8 findings precisely because it was outside this glob.
+      - name: shellcheck all scripts
+        run: shellcheck plugin/skills/verify/scripts/*.sh scripts/*.sh
 
       # Skills ship to client repos that have no access to this monorepo, and
       # must not bake in one deployment's addresses. Deployment-specific IPs or
