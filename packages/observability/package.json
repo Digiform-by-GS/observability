@@ -1,8 +1,16 @@
 {
-  "name": "@digiform/observability",
-  "version": "0.1.0",
+  "name": "@digiform-by-gs/observability",
+  "version": "0.1.1",
   "description": "Batteries-included OpenTelemetry wrapper for Node.js — one install, trace-correlated logs/traces/metrics over OTLP.",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Digiform-by-GS/observability.git",
+    "directory": "packages/observability"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

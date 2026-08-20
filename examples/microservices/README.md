@@ -1,6 +1,6 @@
 # microservices-demo — blast-radius example
 
-Three chained Express services, each instrumented with `@digiform/observability`:
+Three chained Express services, each instrumented with `@digiform-by-gs/observability`:
 
 ```
 checkout-api :8080  ──►  orders :8082  ──►  payments :8083
@@ -14,9 +14,9 @@ up the chain — this example exists to answer **"something broke; what is impac
 Each service needs its own terminal (or run them backgrounded):
 
 ```bash
-npm run -w @digiform/microservices-demo start:payments   # :8083
-npm run -w @digiform/microservices-demo start:orders     # :8082
-npm run -w @digiform/microservices-demo start:checkout   # :8080
+npm run -w @digiform-by-gs/microservices-demo start:payments   # :8083
+npm run -w @digiform-by-gs/microservices-demo start:orders     # :8082
+npm run -w @digiform-by-gs/microservices-demo start:checkout   # :8080
 ```
 
 Requires the stack up (`docker compose up -d`). Each service sets its own

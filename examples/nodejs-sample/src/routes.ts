@@ -1,6 +1,6 @@
 import { SpanStatusCode } from '@opentelemetry/api';
 import { Router } from 'express';
-import { getLogger, getMeter, getTracer } from '@digiform/observability';
+import { getLogger, getMeter, getTracer } from '@digiform-by-gs/observability';
 
 const tracer = getTracer('nodejs-sample');
 const meter = getMeter('nodejs-sample');

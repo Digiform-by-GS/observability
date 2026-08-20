@@ -1,7 +1,7 @@
 # observability-go
 
 OpenTelemetry traces, metrics, and trace-correlated logs for Go services in one
-call. The Go counterpart of [`@digiform/observability`](../observability/),
+call. The Go counterpart of [`@digiform-by-gs/observability`](../observability/),
 sharing its environment-variable contract exactly — so a service author moving
 between the Go, Node, and Next.js stacks configures all three identically.
 

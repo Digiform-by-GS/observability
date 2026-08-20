@@ -3,7 +3,7 @@
 How to add observability to a service, for both stacks this baseline supports.
 One environment-variable contract, two libraries:
 
-- **Node.js / TypeScript** → the `@digiform/observability` npm package
+- **Node.js / TypeScript** → the `@digiform-by-gs/observability` npm package
 - **Go** → the `observability-go` module
 - **Next.js (server-side)** → `@vercel/otel` inline (no wrapper — see the end)
 
@@ -24,7 +24,7 @@ else, so your library version is **decoupled from the backend versions** — you
 can upgrade the wrapper without touching Loki/Tempo/Mimir, and vice versa. OTLP
 is a stable, backward-compatible protocol.
 
-### Node — `@digiform/observability@0.1.0`
+### Node — `@digiform-by-gs/observability@0.1.0`
 
 | Requirement | Version | Notes |
 |---|---|---|
@@ -34,7 +34,7 @@ is a stable, backward-compatible protocol.
 | OpenTelemetry JS | `@opentelemetry/api` `^1.9.1`, SDK `^0.215.0` (experimental) + `^2.7.0` (stable) | The wrapper pins a **compatible set** — upgrade the wrapper, not the individual sub-packages. The `0.x` experimental packages can break between minors. |
 | pino | `^10.3.1` | The logger you get from `getLogger()`. |
 
-### Go — `github.com/digiform/observability-go`
+### Go — `github.com/Digiform-by-GS/observability/packages/observability-go`
 
 | Requirement | Version | Notes |
 |---|---|---|
@@ -63,12 +63,12 @@ the Collector on `:4318`** (HTTP) — you never address a backend directly.
 
 ---
 
-## Node.js — `@digiform/observability`
+## Node.js — `@digiform-by-gs/observability`
 
 ### 1. Install
 
 ```bash
-npm install @digiform/observability
+npm install @digiform-by-gs/observability
 ```
 
 Ensure your `package.json` has `"type": "module"`.
@@ -80,7 +80,7 @@ before the SDK starts is never traced. The `--import` preload guarantees the SDK
 initializes first — nothing to call, nothing to order:
 
 ```bash
-node --import @digiform/observability/preload src/index.js
+node --import @digiform-by-gs/observability/preload src/index.js
 ```
 
 Configure entirely through environment variables (see [the contract](#the-shared-environment-variable-contract)):
@@ -89,7 +89,7 @@ Configure entirely through environment variables (see [the contract](#the-shared
 OTEL_SERVICE_NAME=orders \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
 OTEL_DEPLOYMENT_ENVIRONMENT=production \
-node --import @digiform/observability/preload src/index.js
+node --import @digiform-by-gs/observability/preload src/index.js
 ```
 
 **Inline init (fallback)** — only when you need config that can't come from env
@@ -97,7 +97,7 @@ vars. It is fragile: `initObservability()` must run before *every* other import,
 which a single hoisted `import` silently breaks.
 
 ```ts
-import { initObservability } from '@digiform/observability';
+import { initObservability } from '@digiform-by-gs/observability';
 const obs = initObservability({ serviceName: 'orders' });
 
 // only now import instrumented libraries
@@ -120,6 +120,7 @@ yourself.
 | `serviceVersion` | `string` | `OTEL_SERVICE_VERSION` | `1.4.2` | `npm_package_version` → `0.0.0` |
 | `environment` | `string` | `OTEL_DEPLOYMENT_ENVIRONMENT` | `production` | `NODE_ENV` → `development` |
 | `endpoint` | `string` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | `http://localhost:4318` |
+| `headers` | `Record<string,string>` | `OTEL_EXPORTER_OTLP_HEADERS` | `{ Authorization: 'Bearer abc' }` | none (**merges** with the env var) |
 | `resourceAttributes` | `Record<string,string>` | `OTEL_RESOURCE_ATTRIBUTES` | `team=payments,region=eu-west-1` | `{}` |
 | `metricExportIntervalMs` | `number` | — | `15000` | `60000` |
 | `logLevel` | `pino.Level` | — | `'debug'` | `'info'` |
@@ -134,7 +135,7 @@ an active span is auto-stamped with `trace_id`/`span_id`. Throws if called befor
 init (can't happen with the preload).
 
 ```ts
-import { getLogger } from '@digiform/observability';
+import { getLogger } from '@digiform-by-gs/observability';
 const log = getLogger();
 
 log.info({ orderId, amount }, 'order created');   // structured fields first
@@ -147,7 +148,7 @@ log.error({ err: { message: e.message, stack: e.stack } }, 'checkout failed');
 #### `getTracer(name, version?): Tracer` — custom spans
 
 ```ts
-import { getTracer } from '@digiform/observability';
+import { getTracer } from '@digiform-by-gs/observability';
 import { SpanStatusCode } from '@opentelemetry/api';
 const tracer = getTracer('orders');
 
@@ -168,7 +169,7 @@ await tracer.startActiveSpan('reconcile-ledger', async (span) => {
 #### `getMeter(name, version?): Meter` — custom metrics
 
 ```ts
-import { getMeter } from '@digiform/observability';
+import { getMeter } from '@digiform-by-gs/observability';
 const meter = getMeter('orders');
 
 const created = meter.createCounter('app.orders.created', { description: 'Orders created.' });
@@ -179,8 +180,8 @@ Create instruments **once at module scope**, never per request.
 
 ### 4. Migrating an existing Node service
 
-1. `npm install @digiform/observability`; set `"type": "module"` if not already.
-2. Change your start command to `node --import @digiform/observability/preload …`.
+1. `npm install @digiform-by-gs/observability`; set `"type": "module"` if not already.
+2. Change your start command to `node --import @digiform-by-gs/observability/preload …`.
 3. Set `OTEL_SERVICE_NAME` + `OTEL_EXPORTER_OTLP_ENDPOINT`.
 4. Replace ad-hoc `console.log`/existing logger with `getLogger()`.
 5. Add `getTracer()` spans around meaningful business operations (I/O is already
@@ -197,7 +198,7 @@ and the multi-service [`examples/microservices`](./examples/microservices/).
 ### 1. Install
 
 ```bash
-go get github.com/digiform/observability-go
+go get github.com/Digiform-by-GS/observability/packages/observability-go
 ```
 
 Requires Go 1.25+.
@@ -214,7 +215,7 @@ import (
     "os/signal"
     "syscall"
     "time"
-    observability "github.com/digiform/observability-go"
+    observability "github.com/Digiform-by-GS/observability/packages/observability-go"
 )
 
 func main() {
@@ -250,6 +251,7 @@ enables Go runtime metrics.
 | `WithServiceVersion(string)` | `OTEL_SERVICE_VERSION` | `1.4.2` | `0.0.0` |
 | `WithEnvironment(string)` | `OTEL_DEPLOYMENT_ENVIRONMENT` | `production` | `development` |
 | `WithEndpoint(string)` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | `http://localhost:4318` |
+| `WithHeaders(map[string]string)` | `OTEL_EXPORTER_OTLP_HEADERS` | `{"Authorization": "Bearer abc"}` | none (**replaces** the env var — see the contract section) |
 | `WithLogLevel(string)` | `OTEL_LOG_LEVEL` | `info` | `info` |
 | `WithResourceAttributes(map[string]string)` | `OTEL_RESOURCE_ATTRIBUTES` | `team=payments,region=eu-west-1` | none |
 | `WithMetricInterval(time.Duration)` | — | `15 * time.Second` | `60s` |
@@ -322,7 +324,7 @@ Verified: hitting `/orders/1..N` on the Echo example collapses to a single
 #### Redis — `observability-go/redisx`
 
 ```go
-import "github.com/digiform/observability-go/redisx"
+import "github.com/Digiform-by-GS/observability/packages/observability-go/redisx"
 
 client := redis.NewClient(&redis.Options{Addr: "redis:6379"})
 if err := redisx.Instrument(client); err != nil { /* ... */ }   // BEFORE any command
@@ -335,7 +337,7 @@ client spans reveal *which endpoint* is hammering it.
 #### SQL — `observability-go/sqlx`
 
 ```go
-import "github.com/digiform/observability-go/sqlx"
+import "github.com/Digiform-by-GS/observability/packages/observability-go/sqlx"
 
 db, closeDB, err := sqlx.Open("pgx", dsn, "postgresql")
 if err != nil { /* ... */ }
@@ -349,7 +351,7 @@ The important design point: **consumers start a new root trace linked to the
 producer**, not a parent-child span. See [`CLAUDE.md`](./CLAUDE.md) for why.
 
 ```go
-import obsamqp "github.com/digiform/observability-go/amqp"
+import obsamqp "github.com/Digiform-by-GS/observability/packages/observability-go/amqp"
 
 // Producer — PRODUCER span, injects trace context into headers
 pub, _ := obsamqp.NewPublisher(ch)   // ch is *amqp091.Channel (or the Channel interface)
@@ -369,7 +371,7 @@ dead-letter), and the `PublishedAtHeader` / `RetryCountHeader` constants.
 
 ### 5. Migrating an existing Go service
 
-1. `go get github.com/digiform/observability-go`; ensure Go 1.25+.
+1. `go get github.com/Digiform-by-GS/observability/packages/observability-go`; ensure Go 1.25+.
 2. Add `observability.New(ctx, …)` + `defer obs.Shutdown(...)` in `main`; own the
    signal context.
 3. Wrap your router (`otelchi`/`otelgin`) and HTTP clients (`otelhttp.NewTransport`).
@@ -400,6 +402,7 @@ optional ones are strongly recommended in any real deployment (marked below) —
 | `OTEL_DEPLOYMENT_ENVIRONMENT` | No *(recommended)* | `production` | `development` (Go) / `NODE_ENV` → `development` (Node) |
 | `OTEL_SERVICE_VERSION` | No | `1.4.2` | `0.0.0` (Go) / `npm_package_version` → `0.0.0` (Node) |
 | `OTEL_RESOURCE_ATTRIBUTES` | No | `team=payments,region=eu-west-1` | empty |
+| `OTEL_EXPORTER_OTLP_HEADERS` | No *(required by authenticated collectors)* | `Authorization=Bearer abc123` | none |
 | `OTEL_LOG_LEVEL` *(Go only)* | No | `info` | `info` |
 | `PYROSCOPE_SERVER_ADDRESS` *(opt-in profiling)* | No | `http://localhost:4040` | unset → profiling off |
 
@@ -446,6 +449,26 @@ Extra resource attributes as `key=value,key2=value2` (e.g. `team`, `region`),
 merged into every signal. *Omit it →* none are added. *Gotcha:* same
 metric-label promotion as above — keep the *values* low-cardinality.
 
+**`OTEL_EXPORTER_OTLP_HEADERS` — optional; mandatory against an authenticated collector.**
+Extra headers sent on every OTLP export, `key=value,key2=value2` (commonly
+`Authorization=Bearer <token>`, and `X-Scope-OrgID=<tenant>` on a multi-tenant
+backend). The local dev stack is unauthenticated, so you will not need it there.
+*Omit it against a collector that requires auth →* every export is rejected;
+depending on the gateway you may see 401s in the app log, or nothing at all.
+
+Both libraries also accept the same thing programmatically — Node's `headers`
+option and Go's `WithHeaders(map[string]string)` — for tokens that come from a
+secret manager rather than the environment.
+
+> **The two stacks differ when you set both, and it is silent.** Go's
+> `WithHeaders` **replaces** whatever `OTEL_EXPORTER_OTLP_HEADERS` provided
+> (upstream assigns the map outright); Node's option **merges** with it. So an
+> app with `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer t` that also calls
+> `WithHeaders({"X-Scope-OrgID": "acme"})` sends **no token** in Go and both
+> headers in Node. **Pick one mechanism per service.** Regression tests pin this
+> behaviour in both libraries (`headers_test.go` / `test/headers.test.ts`), so
+> if an upstream release changes it, CI says so.
+
 **`OTEL_LOG_LEVEL` — optional, Go only.**
 Minimum log level the Go logger emits (`debug`/`info`/`warn`/`error`).
 *Omit it →* `info`. (The Node logger's level is set via the `logLevel` option,
@@ -470,6 +493,7 @@ export OTEL_DEPLOYMENT_ENVIRONMENT=production
 export OTEL_SERVICE_VERSION=1.4.2
 export OTEL_RESOURCE_ATTRIBUTES=team=payments,region=eu-west-1
 export OTEL_LOG_LEVEL=info                              # Go only
+export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer\ abc123   # authenticated collectors
 export PYROSCOPE_SERVER_ADDRESS=http://localhost:4040   # opt-in profiling
 ```
 
@@ -603,7 +627,7 @@ func (s *Service) RedeemVoucher(ctx context.Context, code string, orderID string
 **TypeScript (Node):**
 
 ```ts
-import { getTracer, getMeter, getLogger } from '@digiform/observability';
+import { getTracer, getMeter, getLogger } from '@digiform-by-gs/observability';
 import { SpanStatusCode } from '@opentelemetry/api';
 
 const tracer = getTracer('vouchers');
@@ -727,6 +751,13 @@ Mimir's limits in this stack are configured to reject you, loudly).
   emit `camelCase`. A query spanning both must handle both.
 - **Always flush on shutdown** — Node's handle and Go's `Shutdown` both do this;
   call them (Go) / let the preload's handlers fire (Node).
+- **Short-lived processes need the flush too.** Telemetry is batched, not sent
+  per call, so a script that finishes in milliseconds exits with its spans and
+  logs still in the buffer — delivering nothing, erroring nowhere. Node ≥ 0.1.1
+  flushes on `beforeExit`, which covers natural exit but *not* an explicit
+  `process.exit()` (await `handle.shutdown()` first, or just let the process
+  end). Go's deferred `obs.Shutdown(ctx)` already covers it. Long-running
+  servers were never affected, which is why this is easy to miss.
 
 ---
 

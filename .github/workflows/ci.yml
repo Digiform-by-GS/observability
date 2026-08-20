@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   node:
-    name: Node (@digiform/observability)
+    name: Node (@digiform-by-gs/observability)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,15 +24,15 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Build wrapper
-        run: npm run -w @digiform/observability build
+        run: npm run -w @digiform-by-gs/observability build
       - name: Test wrapper (vitest)
-        run: npm run -w @digiform/observability test
+        run: npm run -w @digiform-by-gs/observability test
       - name: Typecheck wrapper
-        run: npm run -w @digiform/observability typecheck
+        run: npm run -w @digiform-by-gs/observability typecheck
       - name: Typecheck examples
         run: |
-          npm run -w @digiform/nodejs-sample typecheck
-          npm run -w @digiform/microservices-demo typecheck
+          npm run -w @digiform-by-gs/nodejs-sample typecheck
+          npm run -w @digiform-by-gs/microservices-demo typecheck
 
   go:
     name: Go (observability-go + examples)
@@ -92,3 +92,46 @@ jobs:
           version: v2.12.2
           working-directory: examples/go-echo-service
           args: --config ${{ github.workspace }}/.golangci.yml
+
+      - name: Build rehearsal fixture (plain-chi)
+        working-directory: examples/plain-chi
+        run: go build ./...
+
+  plugin:
+    name: Plugin (observability-onboard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Manifests are valid JSON
+        run: |
+          python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
+          python3 -m json.tool plugin/.claude-plugin/plugin.json > /dev/null
+          python3 -m json.tool plugin/skills/dashboards/assets/service-dashboard.json > /dev/null
+
+      - name: Skills have frontmatter
+        run: |
+          fail=0
+          for f in plugin/skills/*/SKILL.md; do
+            head -1 "$f" | grep -qx -- '---' || { echo "missing frontmatter: $f"; fail=1; }
+            sed -n '2,6p' "$f" | grep -q '^name:' || { echo "missing name: $f"; fail=1; }
+            sed -n '2,8p' "$f" | grep -q '^description:' || { echo "missing description: $f"; fail=1; }
+          done
+          exit $fail
+
+      - name: shellcheck verify script
+        run: shellcheck plugin/skills/verify/scripts/*.sh
+
+      # Skills ship to client repos that have no access to this monorepo, and
+      # must not bake in one deployment's addresses. Deployment-specific IPs or
+      # references to in-repo docs are self-containment failures.
+      - name: Self-containment
+        run: |
+          fail=0
+          if grep -rn '20\.20\.1\.88' plugin/; then
+            echo "^ deployment-specific address in plugin/ — endpoints belong in .observability/platform.json"; fail=1
+          fi
+          if grep -rnE 'developer_guide\.md|platform_guide\.md|deployment_guide\.md|CLAUDE\.md|GUIDE\.md' plugin/skills/; then
+            echo "^ skills reference monorepo docs — content must be distilled in, not linked"; fail=1
+          fi
+          exit $fail

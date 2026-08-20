@@ -1,16 +1,16 @@
 {
-  "name": "@digiform/nodejs-sample",
+  "name": "@digiform-by-gs/nodejs-sample",
   "version": "0.1.0",
   "private": true,
-  "description": "Express demo wired to @digiform/observability — emits trace-correlated logs, traces, and metrics to the local OTel Collector.",
+  "description": "Express demo wired to @digiform-by-gs/observability — emits trace-correlated logs, traces, and metrics to the local OTel Collector.",
   "type": "module",
   "scripts": {
-    "start": "node --import tsx --import @digiform/observability/preload src/index.ts",
-    "dev": "tsx watch --import @digiform/observability/preload src/index.ts",
+    "start": "node --import tsx --import @digiform-by-gs/observability/preload src/index.ts",
+    "dev": "tsx watch --import @digiform-by-gs/observability/preload src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@digiform/observability": "*",
+    "@digiform-by-gs/observability": "*",
     "express": "^4.21.1"
   },
   "devDependencies": {

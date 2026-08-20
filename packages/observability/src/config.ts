@@ -8,7 +8,7 @@ export function resolveConfig(options: ObservabilityOptions = {}): ResolvedConfi
 
   if (!serviceName) {
     throw new Error(
-      '[@digiform/observability] serviceName is required. Pass it via initObservability({ serviceName }) or set OTEL_SERVICE_NAME.',
+      '[@digiform-by-gs/observability] serviceName is required. Pass it via initObservability({ serviceName }) or set OTEL_SERVICE_NAME.',
     );
   }
 
@@ -42,6 +42,10 @@ export function resolveConfig(options: ObservabilityOptions = {}): ResolvedConfi
     serviceVersion,
     environment,
     endpoint: stripTrailingSlash(endpoint),
+    // Pass-through only. OTEL_EXPORTER_OTLP_HEADERS is intentionally not read
+    // here — the exporters resolve it themselves (with per-signal overrides),
+    // and this wrapper must not shadow that.
+    headers: options.headers,
     resourceAttributes,
     instrumentations: options.instrumentations,
     additionalInstrumentations: options.additionalInstrumentations ?? [],
