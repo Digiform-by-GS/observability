@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getLogger } from '@digiform/observability';
+import { getLogger } from '@digiform-by-gs/observability';
 import { startProfiling } from './profiling.js';
 import { startService } from './service.js';
 

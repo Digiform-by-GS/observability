@@ -1,4 +1,4 @@
-# @digiform/observability
+# @digiform-by-gs/observability
 
 Batteries-included OpenTelemetry wrapper for Node.js. One install, two lines of code, and your service emits trace-correlated logs, traces, and metrics over OTLP/HTTP.
 
@@ -7,7 +7,7 @@ Pairs with the LGTM + OTel Collector stack in the root of this repo.
 ## Install
 
 ```bash
-npm install @digiform/observability
+npm install @digiform-by-gs/observability
 ```
 
 Node 18.19+ or 20.6+ (floor set by `@opentelemetry/sdk-node`). ESM only — your service needs
@@ -18,7 +18,7 @@ Node 18.19+ or 20.6+ (floor set by `@opentelemetry/sdk-node`). ESM only — your
 ```ts
 // Must be the FIRST thing your entry file does, before any other imports that
 // you want instrumented (express, http, pg, etc).
-import { initObservability } from '@digiform/observability';
+import { initObservability } from '@digiform-by-gs/observability';
 
 const obs = initObservability({
   serviceName: 'my-service',
@@ -26,7 +26,7 @@ const obs = initObservability({
 });
 
 import express from 'express';
-import { getLogger } from '@digiform/observability';
+import { getLogger } from '@digiform-by-gs/observability';
 
 const app = express();
 const log = getLogger();
@@ -46,7 +46,7 @@ process.on('beforeExit', () => obs.shutdown());
 The inline pattern above only works if nothing in your module graph gets imported before `initObservability()`. For real apps, use the preload entry:
 
 ```bash
-node --import @digiform/observability/preload src/index.js
+node --import @digiform-by-gs/observability/preload src/index.js
 ```
 
 This package is **ESM-only** — there is no CommonJS build. `--require` fails with
@@ -108,6 +108,7 @@ Every signal carries the same `service.name`, `service.version`, and `deployment
 | `OTEL_DEPLOYMENT_ENVIRONMENT` | `production` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` |
 | `OTEL_RESOURCE_ATTRIBUTES` | `team=payments,region=eu-west-1` |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `Authorization=Bearer abc123` (needed by authenticated collectors; merges with the `headers` option) |
 | `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs,dns` (honoured by `getNodeAutoInstrumentations()`) |
 
 Plus any `OTEL_*` env var the core SDK understands.
@@ -123,4 +124,8 @@ Plus any `OTEL_*` env var the core SDK understands.
 
 ## Graceful shutdown
 
-`initObservability()` registers `SIGTERM` and `SIGINT` handlers that flush pending spans, metrics, and logs before exit. You can also call `handle.shutdown()` yourself — e.g. from `beforeExit` — if you want to control the shutdown path.
+`initObservability()` registers `SIGTERM`, `SIGINT`, and `beforeExit` handlers that flush pending spans, metrics, and logs before exit. You can also call `handle.shutdown()` yourself if you want to control the shutdown path.
+
+The `beforeExit` handler is what covers **short-lived processes** — CLI tools, cron jobs, migrations, seed scripts, test harnesses. They receive no signal, so before 0.1.1 they exited while the batch processors still held their telemetry and everything was lost silently, with no error and nothing in the collector log. Long-running servers were never affected because they get `SIGTERM`.
+
+Two cases `beforeExit` cannot cover, by Node's design: an explicit `process.exit()`, and an uncaught exception. If your script calls `process.exit()`, `await handle.shutdown()` first — or drop the explicit exit and let the process end naturally.

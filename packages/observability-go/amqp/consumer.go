@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const instrumentationName = "github.com/digiform/observability-go/amqp"
+const instrumentationName = "github.com/Digiform-by-GS/observability/packages/observability-go/amqp"
 
 // RetryCountHeader tracks redelivery attempts. AMQP has no standard retry
 // counter — `redelivered` is a boolean, not a count — so it is maintained here.

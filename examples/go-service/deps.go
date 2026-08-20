@@ -10,8 +10,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 	"github.com/redis/go-redis/v9"
 
-	"github.com/digiform/observability-go/redisx"
-	"github.com/digiform/observability-go/sqlx"
+	"github.com/Digiform-by-GS/observability/packages/observability-go/redisx"
+	"github.com/Digiform-by-GS/observability/packages/observability-go/sqlx"
 )
 
 // deps holds the instrumented backing services. Both are optional: if the

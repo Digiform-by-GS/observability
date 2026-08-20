@@ -1,5 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { getLogger } from '@digiform/observability';
+import { getLogger } from '@digiform-by-gs/observability';
 import { buildRouter } from './routes.js';
 
 const log = getLogger();

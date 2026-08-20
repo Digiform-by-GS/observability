@@ -4,7 +4,7 @@ A local LGTM (Loki, Grafana, Tempo, Mimir) + Pyroscope + OpenTelemetry Collector
 
 Contents:
 1. **This repo's `docker-compose`** — the backend stack
-2. **[`@digiform/observability`](./packages/observability/)** — a wrapper NPM package bundling the OTel SDK and sensible defaults
+2. **[`@digiform-by-gs/observability`](./packages/observability/)** — a wrapper NPM package bundling the OTel SDK and sensible defaults
 3. **[`examples/nodejs-sample`](./examples/nodejs-sample/)** — an Express app demonstrating the wrapper end-to-end
 4. **[`examples/microservices`](./examples/microservices/)** — three chained services showing cross-service tracing and blast-radius analysis
 

@@ -1,6 +1,6 @@
-# @digiform/nodejs-sample
+# @digiform-by-gs/nodejs-sample
 
-Express demo that exercises [`@digiform/observability`](../../packages/observability/) end-to-end. Hits send OTLP to the local Collector; data lands in Loki / Tempo / Mimir and renders in Grafana with full correlation.
+Express demo that exercises [`@digiform-by-gs/observability`](../../packages/observability/) end-to-end. Hits send OTLP to the local Collector; data lands in Loki / Tempo / Mimir and renders in Grafana with full correlation.
 
 ## Prerequisites
 
@@ -19,10 +19,10 @@ docker compose ps                   # all five services healthy
 ```bash
 # from repo root
 npm install                                       # picks up this workspace
-npm run -w @digiform/nodejs-sample start          # listens on PORT (default 8080)
+npm run -w @digiform-by-gs/nodejs-sample start          # listens on PORT (default 8080)
 ```
 
-Run on a non-default port: `PORT=9090 npm run -w @digiform/nodejs-sample start`.
+Run on a non-default port: `PORT=9090 npm run -w @digiform-by-gs/nodejs-sample start`.
 
 > **WSL2 + `/mnt/c|d|...` cold-start caveat:** if the repo lives on a Windows drive mounted into WSL (`/mnt/d/...`), the first boot can take **2–3 minutes** because Node has to resolve hundreds of `@opentelemetry/*` files across the slow 9P bridge. Subsequent boots are fast (warm OS file cache). Move the repo to native WSL storage (`~/observability`) to skip this entirely.
 
@@ -79,8 +79,8 @@ Search Tempo for `{ resource.service.name = "nodejs-sample" && name = "GET /work
 |---|---|
 | Nothing anywhere in Grafana | `curl -i http://localhost:4318/v1/traces -d '{}' -H 'Content-Type: application/json'` — should return 200. If it fails, the Collector isn't reachable. `docker compose logs otel-collector`. |
 | Traces present, logs missing | The pino transport runs in a worker thread without the parent env. Check that the wrapper passes `resourceAttributes` into transport options — should be wired in `packages/observability/src/logging.ts`. |
-| Logs present, no "View Trace" link | Open a log line's details — `trace_id` should be present. If it's missing, the active span isn't being captured by the pino mixin (likely an SDK init-order issue — confirm `start` script preloads `@digiform/observability/preload`). |
-| Express requests show but no spans for them | SDK init ran AFTER express was loaded. Verify `--import @digiform/observability/preload` is in the `start` script (it must come after `--import tsx` but before any application import). |
+| Logs present, no "View Trace" link | Open a log line's details — `trace_id` should be present. If it's missing, the active span isn't being captured by the pino mixin (likely an SDK init-order issue — confirm `start` script preloads `@digiform-by-gs/observability/preload`). |
+| Express requests show but no spans for them | SDK init ran AFTER express was loaded. Verify `--import @digiform-by-gs/observability/preload` is in the `start` script (it must come after `--import tsx` but before any application import). |
 
 ## Stopping
 

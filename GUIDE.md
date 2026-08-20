@@ -1,6 +1,6 @@
 # Observability Guide
 
-How to instrument a service with `@digiform/observability`, and how to run and debug the
+How to instrument a service with `@digiform-by-gs/observability`, and how to run and debug the
 backing stack. Written for two audiences:
 
 - **[Developer Guide](#developer-guide)** — you own a Node service and want traces, metrics, and
@@ -35,7 +35,7 @@ pre-provisioned.
 ### 2. Add the library to your service
 
 ```bash
-npm install @digiform/observability
+npm install @digiform-by-gs/observability
 ```
 
 **Requires Node 18.19+ or 20.6+, and your service must be ESM** (`"type": "module"`).
@@ -46,7 +46,7 @@ This package is ESM-only — there is no CommonJS build.
 ```bash
 OTEL_SERVICE_NAME=my-service \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
-node --import @digiform/observability/preload src/index.js
+node --import @digiform-by-gs/observability/preload src/index.js
 ```
 
 That is the whole integration. HTTP servers/clients, Express, and most common libraries are
@@ -55,7 +55,7 @@ auto-instrumented — you get traces and metrics with no code change.
 ### 4. Log with trace correlation
 
 ```js
-import { getLogger } from '@digiform/observability';
+import { getLogger } from '@digiform-by-gs/observability';
 
 const log = getLogger();
 log.info({ orderId: '123' }, 'order created');
@@ -84,14 +84,14 @@ imported before the SDK starts is never instrumented. The `--import` preload gua
 initialises first:
 
 ```bash
-node --import @digiform/observability/preload src/index.js
+node --import @digiform-by-gs/observability/preload src/index.js
 ```
 
 There is an inline alternative, but it is fragile — `initObservability()` must run before *every*
 other import, which a single hoisted `import` at the top of your entry file will silently break:
 
 ```js
-import { initObservability } from '@digiform/observability';
+import { initObservability } from '@digiform-by-gs/observability';
 const obs = initObservability({ serviceName: 'my-service' });
 // only now import express, pg, etc.
 ```
@@ -123,7 +123,7 @@ Code-only options: `instrumentations` (replaces auto-instrumentations entirely),
 ### Logging
 
 ```js
-import { getLogger } from '@digiform/observability';
+import { getLogger } from '@digiform-by-gs/observability';
 const log = getLogger();
 
 log.info({ orderId, amount }, 'order created');   // structured fields first, message second
@@ -146,7 +146,7 @@ you call it at module scope in a file imported by an inline-init entry point.
 Auto-instrumentation covers I/O. Add spans for meaningful business operations:
 
 ```js
-import { getTracer } from '@digiform/observability';
+import { getTracer } from '@digiform-by-gs/observability';
 const tracer = getTracer('my-service');
 
 const result = await tracer.startActiveSpan('reconcile-ledger', async (span) => {
@@ -169,7 +169,7 @@ to it automatically.
 ### Custom metrics
 
 ```js
-import { getMeter } from '@digiform/observability';
+import { getMeter } from '@digiform-by-gs/observability';
 const meter = getMeter('my-service');
 
 const ordersCreated = meter.createCounter('app.orders.created', {
@@ -201,7 +201,7 @@ process.once('SIGTERM', stop);
 
 ```bash
 docker compose up -d                      # stack
-OTEL_SERVICE_NAME=my-service node --import @digiform/observability/preload src/index.js
+OTEL_SERVICE_NAME=my-service node --import @digiform-by-gs/observability/preload src/index.js
 ```
 
 Logs also print to stdout, so you keep normal local visibility while telemetry ships to the stack.
@@ -425,7 +425,7 @@ Go-only). It still answers "what was this service allocating while that request 
 **Enabling it in a service** — opt in with one env var:
 
 ```bash
-PYROSCOPE_SERVER_ADDRESS=http://localhost:4040 npm run -w @digiform/microservices-demo start:payments
+PYROSCOPE_SERVER_ADDRESS=http://localhost:4040 npm run -w @digiform-by-gs/microservices-demo start:payments
 ```
 
 `src/profiling.ts` in the microservices example is the reference: it imports the SDK dynamically
@@ -475,7 +475,7 @@ was this service allocating while that request was slow?".
 **Enabling it in a service** — opt in with one env var:
 
 ```bash
-PYROSCOPE_SERVER_ADDRESS=http://localhost:4040 npm run -w @digiform/microservices-demo start:payments
+PYROSCOPE_SERVER_ADDRESS=http://localhost:4040 npm run -w @digiform-by-gs/microservices-demo start:payments
 ```
 
 `examples/microservices/src/profiling.ts` is the reference implementation: it imports the SDK

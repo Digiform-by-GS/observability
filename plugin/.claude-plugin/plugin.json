@@ -1,0 +1,20 @@
+{
+  "name": "observability-onboard",
+  "version": "0.1.0",
+  "description": "Agentic onboarding for the Digiform observability platform. Instruments Node and Go services (traces, metrics, trace-correlated logs over OTLP), verifies every signal end-to-end from the client side, and provisions per-service dashboards.",
+  "author": {
+    "name": "Digiform"
+  },
+  "homepage": "https://github.com/Digiform-by-GS/observability",
+  "repository": "https://github.com/Digiform-by-GS/observability",
+  "license": "Apache-2.0",
+  "keywords": [
+    "observability",
+    "opentelemetry",
+    "otlp",
+    "tracing",
+    "logging",
+    "metrics",
+    "grafana"
+  ]
+}

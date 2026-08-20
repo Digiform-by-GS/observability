@@ -1,3 +1,5 @@
+import { context, metrics, propagation, trace } from '@opentelemetry/api';
+import { logs } from '@opentelemetry/api-logs';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
@@ -28,7 +30,7 @@ function markStarted(value: boolean): void {
 export function initObservability(options: ObservabilityOptions = {}): ObservabilityHandle {
   if (isStarted()) {
     console.warn(
-      '[@digiform/observability] initObservability() called more than once — ignoring subsequent call.',
+      '[@digiform-by-gs/observability] initObservability() called more than once — ignoring subsequent call.',
     );
     return { shutdown: async () => {} };
   }
@@ -36,9 +38,14 @@ export function initObservability(options: ObservabilityOptions = {}): Observabi
   const config = resolveConfig(options);
   const resource = buildResource(config);
 
-  const traceExporter = new OTLPTraceExporter({ url: `${config.endpoint}/v1/traces` });
-  const metricExporter = new OTLPMetricExporter({ url: `${config.endpoint}/v1/metrics` });
-  const logExporter = new OTLPLogExporter({ url: `${config.endpoint}/v1/logs` });
+  // `headers` is spread conditionally so an absent option leaves the exporters
+  // free to resolve OTEL_EXPORTER_OTLP_HEADERS (and per-signal variants) from
+  // the environment; passing `headers: undefined` explicitly would be fine
+  // today but this keeps intent unmistakable.
+  const exporterHeaders = config.headers ? { headers: config.headers } : {};
+  const traceExporter = new OTLPTraceExporter({ url: `${config.endpoint}/v1/traces`, ...exporterHeaders });
+  const metricExporter = new OTLPMetricExporter({ url: `${config.endpoint}/v1/metrics`, ...exporterHeaders });
+  const logExporter = new OTLPLogExporter({ url: `${config.endpoint}/v1/logs`, ...exporterHeaders });
 
   const instrumentations = config.instrumentations
     ? config.instrumentations
@@ -84,4 +91,14 @@ export function initObservability(options: ObservabilityOptions = {}): Observabi
 export function __resetForTests(): void {
   markStarted(false);
   clearLogger();
+  // Also release the OTel global providers. The API refuses duplicate global
+  // registration, so without this a second initObservability() in the same
+  // process registers nothing: spans silently route to the previous (shut
+  // down) provider and never export. Only unmocked tests notice — the SDK
+  // mocks in init.test.ts never touch the real globals.
+  trace.disable();
+  metrics.disable();
+  logs.disable();
+  context.disable();
+  propagation.disable();
 }

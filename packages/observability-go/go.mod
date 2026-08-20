@@ -1,6 +1,6 @@
-module github.com/digiform/observability-go
+module github.com/Digiform-by-GS/observability/packages/observability-go
 
-go 1.26.5
+go 1.25.0
 
 require (
 	github.com/XSAM/otelsql v0.43.0

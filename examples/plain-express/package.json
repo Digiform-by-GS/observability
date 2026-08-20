@@ -1,0 +1,13 @@
+{
+  "name": "@digiform-by-gs/plain-express",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deliberately UNINSTRUMENTED Express app — rehearsal fixture for the observability-onboard plugin. Run the plugin's onboard skill against this repo to test/demo the onboarding flow.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}

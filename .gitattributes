@@ -9,3 +9,11 @@
 # value.
 *.yaml text eol=lf
 *.yml  text eol=lf
+
+# Go sources too. gofmt treats CRLF as a formatting error, so on a Windows
+# checkout `gofmt -l` flags every file in the repo and any real formatting
+# problem is lost in the noise. CI runs on Linux and never sees it, which is
+# precisely why it went unnoticed.
+*.go   text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf

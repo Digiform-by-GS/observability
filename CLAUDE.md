@@ -8,7 +8,7 @@ This file provides architectural context for future Claude Code sessions working
 
 A monorepo that provides:
 1. **LGTM + OTel Collector stack** — runs locally via Docker Compose; mirrors production topology
-2. **`@digiform/observability` wrapper package** — bundles OTel SDK + exporters so devs install one package
+2. **`@digiform-by-gs/observability` wrapper package** — bundles OTel SDK + exporters so devs install one package
 3. **`observability-go` module** — the Go counterpart, sharing the same env-var contract
 4. **`examples/nodejs-sample`** — single Express app demonstrating the wrapper end-to-end
 5. **`examples/microservices`** — three chained services demonstrating cross-service tracing and blast-radius analysis
@@ -184,7 +184,7 @@ observability-baseline/
 │               └── blast-radius.json          # incident: cause vs. impact
 ├── .golangci.yml                 # sloglint context:all — REQUIRED, see Go section
 ├── packages/
-│   ├── observability/            # @digiform/observability wrapper (Node)
+│   ├── observability/            # @digiform-by-gs/observability wrapper (Node)
 │   └── observability-go/         # observability-go module (Go)
 └── examples/
     ├── nodejs-sample/            # single Express demo app
@@ -221,7 +221,7 @@ docker compose restart otel-collector
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3100/ready   # Loki  (also :3200 Tempo, :9009 Mimir)
 
 # Wrapper: build + test after editing packages/observability
-npm run -w @digiform/observability build && npm run -w @digiform/observability test
+npm run -w @digiform-by-gs/observability build && npm run -w @digiform-by-gs/observability test
 
 # Go module: test + lint (the lint is load-bearing — see the Go section)
 cd packages/observability-go && go test ./... && golangci-lint run --config ../../.golangci.yml ./...
@@ -231,12 +231,12 @@ docker compose build go-service && docker compose up -d go-service
 curl localhost:8090/work
 
 # Single sample app
-OTEL_SERVICE_NAME=nodejs-sample npm run -w @digiform/nodejs-sample start
+OTEL_SERVICE_NAME=nodejs-sample npm run -w @digiform-by-gs/nodejs-sample start
 
 # Microservices chain (one terminal each)
-npm run -w @digiform/microservices-demo start:payments   # :8083
-npm run -w @digiform/microservices-demo start:orders     # :8082
-npm run -w @digiform/microservices-demo start:checkout   # :8080
+npm run -w @digiform-by-gs/microservices-demo start:payments   # :8083
+npm run -w @digiform-by-gs/microservices-demo start:orders     # :8082
+npm run -w @digiform-by-gs/microservices-demo start:checkout   # :8080
 
 # Trigger / clear the demo incident
 curl -XPOST localhost:8083/admin/failure-mode -H 'content-type: application/json' -d '{"enabled":true}'
@@ -309,6 +309,22 @@ nothing. Probe bindability with a throwaway `net.createServer()` script rather t
 | Go: every OTLP export 404s | `WithEndpoint` used instead of `WithEndpointURL`, giving `/v1/traces/v1/traces` — the SDK appends the suffix itself |
 
 ---
+
+## The onboarding plugin mirrors the docs — keep them in lockstep
+
+`plugin/` is a distributable Claude Code plugin (marketplace manifest at
+`.claude-plugin/marketplace.json`) whose skills are **self-contained copies**
+of the knowledge in `developer_guide.md` / `platform_guide.md` / this file —
+client repos cannot see this monorepo, so the skills cannot link back here.
+That is a deliberate trade: distribution requires duplication.
+
+Consequence: **any change to a library's public API, the env-var contract, or
+an operational gotcha needs a matching `plugin/skills/` update in the same
+PR.** CI enforces the mechanical half (valid manifests, shellcheck, no
+deployment-specific IPs, no monorepo doc references inside skills); the
+content half is on you. The rehearsal fixtures `examples/plain-express` and
+`examples/plain-chi` are deliberately uninstrumented "before" apps for testing
+the onboard skill — do not instrument them.
 
 ## Out of Scope (v1)
 
