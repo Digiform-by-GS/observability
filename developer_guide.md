@@ -301,7 +301,7 @@ identical.
 ```go
 // chi — see examples/go-service
 r := chi.NewRouter()
-r.Use(otelchi.Middleware("orders", otelchi.WithChiRoutes(r)))
+r.Use(otelchi.Middleware("orders", otelchi.WithChiRoutes(r), otelchi.WithRequestMethodInSpanName(true)))
 
 // Echo — see examples/go-echo-service
 e := echo.New()
@@ -314,6 +314,15 @@ r.Use(otelgin.Middleware("orders"))
 // Client — this wrapped transport is what injects traceparent outbound
 client := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 ```
+
+
+`WithRequestMethodInSpanName(true)` on chi is load-bearing, not cosmetic:
+without it the span is named after the route alone (`/orders`), so `GET` and
+`POST` on the same path share one span name and one set of RED series. The
+method is recorded as a span attribute but is **not** a span-metrics dimension
+in this stack, so it never reaches the metric labels — the information is
+simply unavailable on dashboards. otelecho includes the method by default;
+otelchi does not.
 
 Imports: `otelchi` (`github.com/riandyrn/otelchi`), `otelecho`
 (`go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho`),

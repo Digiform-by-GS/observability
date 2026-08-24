@@ -77,7 +77,7 @@ Also: `WithMetricInterval` (default 60s), `WithoutRuntimeMetrics`,
 
 ```go
 r := chi.NewRouter()
-r.Use(otelchi.Middleware("orders", otelchi.WithChiRoutes(r)))          // server
+r.Use(otelchi.Middleware("orders", otelchi.WithChiRoutes(r), otelchi.WithRequestMethodInSpanName(true)))          // server
 
 client := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)} // client
 ```
