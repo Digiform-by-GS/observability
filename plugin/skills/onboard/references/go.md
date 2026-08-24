@@ -66,7 +66,7 @@ ever joins across services. If the user's code already calls
 ```go
 // chi
 r := chi.NewRouter()
-r.Use(otelchi.Middleware("orders", otelchi.WithChiRoutes(r)))
+r.Use(otelchi.Middleware("orders", otelchi.WithChiRoutes(r), otelchi.WithRequestMethodInSpanName(true)))
 // import "github.com/riandyrn/otelchi"
 
 // gin
@@ -87,6 +87,22 @@ set per distinct URL, which grows until the shared platform starts rejecting
 metric writes for everyone. For frameworks not listed, find their OTel contrib
 middleware; the acceptance criterion is route-template span names. Last resort:
 `otelhttp` with an explicit span-name formatter that returns the route pattern.
+
+**`WithRequestMethodInSpanName(true)` is not optional on chi.** Without it
+otelchi names the span after the route alone — `/orders` — so `GET /orders`
+and `POST /orders` become the *same* span name and share one set of
+rate/error/latency series. You cannot tell a read from a write on the
+dashboard, and there is no fallback: `http.method` is recorded as a span
+attribute but is not one of the platform's span-metrics dimensions, so it
+never reaches the metric labels. With the option the name is `GET /orders`,
+matching OpenTelemetry's `{method} {route}` convention and the Node stack.
+
+otelecho already does this by default (its formatter is `method + " " + path`),
+so no extra option there. For any framework not listed, the acceptance
+criterion is the same: a server span must read `GET /orders/{id}` — not a bare
+path (`/orders/{id}`, methods collapsed) and not a concrete URL
+(`GET /orders/42`, unbounded). Verify it with the verify skill before calling
+the service onboarded.
 
 **Outbound HTTP clients** are the other half of propagation — the wrapped
 transport is what injects `traceparent`:

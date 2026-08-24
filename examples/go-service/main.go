@@ -152,7 +152,7 @@ func newServer(log *slog.Logger, d *deps, m *messaging) (http.Handler, error) {
 	// otelchi, not bare otelhttp: chi exposes the route *pattern*, so spans are
 	// named "GET /orders/{id}" rather than "GET /orders/8fe2...". Raw paths would
 	// make span_name unbounded and blow up span-metrics cardinality in Mimir.
-	r.Use(otelchi.Middleware(serviceName, otelchi.WithChiRoutes(r)))
+	r.Use(otelchi.Middleware(serviceName, otelchi.WithChiRoutes(r), otelchi.WithRequestMethodInSpanName(true)))
 
 	r.Get("/healthy", func(w http.ResponseWriter, req *http.Request) {
 		requests.Add(req.Context(), 1, metric.WithAttributes(attribute.String("route", "/healthy")))
