@@ -77,12 +77,28 @@ operator's side)? Report which signal failed and where it stopped.
 | **Span names bounded** | `count(sum by (span_name) (traces_spanmetrics_calls_total{service="<svc>"}))` and list the names | Names are route **templates** (`GET /orders/{id}`). FAIL if names contain concrete ids/numbers (`GET /orders/42`) — see below |
 | Runtime metrics | Node: `nodejs_eventloop_utilization` / Go: `process_runtime_go_goroutines` filtered on `service_name="<svc>"` | Present (confirms SDK metrics beyond spans) |
 
-**Span-name check is a hard gate, not advice.** Concrete paths in span names
-mean the platform mints a full rate/error/latency series set per distinct URL —
-on a shared platform this eventually gets metric writes rejected for *every*
-team. If you see raw paths: the service is using a non-templating handler
-wrapper (in Go, typically bare `otelhttp`) — go back to the onboard skill's
-router-middleware section and fix it before declaring victory.
+**Span-name check is a hard gate, not advice.** It has two distinct failure
+modes, and they look nothing alike:
+
+*Too many names* — concrete paths (`GET /orders/42`, `GET /orders/43`) mint a
+full rate/error/latency series set per distinct URL. On a shared platform this
+eventually gets metric writes rejected for *every* team. Cause: a
+non-templating handler wrapper, in Go typically bare `otelhttp`. Fix it via the
+onboard skill's router-middleware section.
+
+*Too few names* — every span is a bare method (`GET`, `POST`) with **no route
+at all**, and spans carry no `http.route` attribute. This one still passes a
+naive "are there ids in the name" check while being useless: all endpoints
+collapse into one series, so per-route RED metrics do not exist. In Node it
+means the ESM loader hook is not active, so express/fastify/pg/redis loaded
+unpatched while core `http` kept working — the service looks instrumented and
+nothing errors. Requires `@digiform-by-gs/observability` **≥ 0.1.2**. Confirm
+with `OTEL_LOG_LEVEL=debug`: `instrumentation-express Applying instrumentation
+patch` should appear; if only `instrumentation-http` and `instrumentation-net`
+do, the hook is missing.
+
+So check the *shape* of the names, not just their count: you want
+`GET /orders/{id}`, not `GET /orders/42` and not bare `GET`.
 
 ## Troubleshooting table
 
