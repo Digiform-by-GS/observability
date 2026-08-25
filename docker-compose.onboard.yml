@@ -29,6 +29,10 @@ services:
       # Submitted jobs can carry a customer's repo token. Set this on anything
       # broader than a trusted LAN.
       API_KEY: ${ONBOARD_API_KEY:-}
+      # Self-hosted GitLab hostnames, comma-separated. gitlab.com and github.com
+      # are recognised without configuration; anything else must be listed here
+      # or the caller must state "provider" on the request.
+      GITLAB_HOSTS: ${ONBOARD_GITLAB_HOSTS:-}
       ARTIFACT_ROOT: /var/lib/onboarding-agent/jobs
     volumes:
       # Docker-out-of-docker: the API spawns sibling containers. This grants

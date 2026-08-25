@@ -30,11 +30,25 @@ fail() {
 
 # --- clone -------------------------------------------------------------------
 # Shallow and single-branch: we only ever diff against the tip.
-CLONE_URL="$REPO_URL"
-if [ -n "${GIT_TOKEN:-}" ]; then
-  # Token injected only into the URL used by git, never logged or persisted.
-  CLONE_URL="$(printf '%s' "$REPO_URL" | sed -E "s#^https://#https://x-access-token:${GIT_TOKEN}@#")"
-fi
+# GitHub and GitLab want different credential users in the clone URL:
+# GitHub personal/app tokens go in as x-access-token, GitLab PATs as oauth2.
+# Getting this wrong fails with a generic 403 that looks like a bad token.
+case "${PROVIDER:-github}" in
+  gitlab) CRED_USER=oauth2 ;;
+  *)      CRED_USER=x-access-token ;;
+esac
+
+authed_url() {
+  # $1 = plain https URL. Emits the same URL with credentials, or unchanged
+  # when no token was supplied (public repositories).
+  if [ -n "${GIT_TOKEN:-}" ]; then
+    printf '%s' "$1" | sed -E "s#^https://#https://${CRED_USER}:${GIT_TOKEN}@#"
+  else
+    printf '%s' "$1"
+  fi
+}
+
+CLONE_URL="$(authed_url "$REPO_URL")"
 
 git clone --depth 1 ${BASE_BRANCH:+--branch "$BASE_BRANCH"} --single-branch \
   "$CLONE_URL" "$REPO_DIR" >"$OUT/clone.log" 2>&1 \
@@ -116,19 +130,42 @@ trace-correlated logs are exported over OTLP to the shared platform.
 Not verified from here: the agent never runs your application. After merging,
 run the observability-onboard plugin's verify skill to confirm the signals
 actually arrive."
-  git remote set-url origin "$(printf '%s' "$REPO_URL" | sed -E "s#^https://#https://x-access-token:${GIT_TOKEN}@#")"
+  git remote set-url origin "$(authed_url "$REPO_URL")"
   git push -q origin "$BRANCH" >>"$OUT/clone.log" 2>&1 || fail "push failed — the token needs write access. See clone.log"
   git remote set-url origin "$REPO_URL"
 
-  SLUG="$(printf '%s' "$REPO_URL" | sed -E 's#^https://github.com/##; s#\.git$##')"
-  PR_URL="$(curl -sS -X POST "https://api.github.com/repos/$SLUG/pulls" \
-    -H "Authorization: Bearer $GIT_TOKEN" \
-    -H "Accept: application/vnd.github+json" \
-    -d "$(jq -n --arg t "Onboard onto the Digiform observability platform" \
-                --arg h "$BRANCH" --arg b "${BASE_BRANCH:-main}" \
-                --arg body "$SUMMARY" \
-                '{title:$t, head:$h, base:$b, body:$body}')" \
-    | jq -r '.html_url // empty')"
+  TITLE="Onboard onto the Digiform observability platform"
+  TARGET="${BASE_BRANCH:-main}"
+  HOST="$(printf '%s' "$REPO_URL" | sed -E 's#^https://([^/]+)/.*#\1#')"
+  # Everything after the host, minus any .git: owner/repo on GitHub,
+  # group/subgroup/project on GitLab.
+  PATH_SLUG="$(printf '%s' "$REPO_URL" | sed -E 's#^https://[^/]+/##; s#\.git$##')"
+
+  if [ "${PROVIDER:-github}" = "gitlab" ]; then
+    # GitLab addresses a project by URL-encoded full path, so every slash in a
+    # subgroup path must become %2F. jq does the encoding rather than sed,
+    # because group names legitimately contain characters sed would mangle.
+    ENC_PATH="$(jq -rn --arg p "$PATH_SLUG" '$p|@uri')"
+    API_RESP="$(curl -sS -X POST "https://$HOST/api/v4/projects/$ENC_PATH/merge_requests" \
+      -H "PRIVATE-TOKEN: $GIT_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "$(jq -n --arg t "$TITLE" --arg sb "$BRANCH" --arg tb "$TARGET" --arg d "$SUMMARY" \
+                  '{title:$t, source_branch:$sb, target_branch:$tb, description:$d}')")"
+    PR_URL="$(printf '%s' "$API_RESP" | jq -r '.web_url // empty')"
+  else
+    API_RESP="$(curl -sS -X POST "https://api.github.com/repos/$PATH_SLUG/pulls" \
+      -H "Authorization: Bearer $GIT_TOKEN" \
+      -H "Accept: application/vnd.github+json" \
+      -d "$(jq -n --arg t "$TITLE" --arg h "$BRANCH" --arg b "$TARGET" --arg body "$SUMMARY" \
+                  '{title:$t, head:$h, base:$b, body:$body}')")"
+    PR_URL="$(printf '%s' "$API_RESP" | jq -r '.html_url // empty')"
+  fi
+
+  # The branch pushed successfully either way; only the MR/PR call failed. Say
+  # so instead of failing the job — the client can open the request by hand.
+  if [ -z "$PR_URL" ]; then
+    echo "warning: branch $BRANCH pushed, but opening the request failed: $(printf '%s' "$API_RESP" | jq -r '.message // .error // .' 2>/dev/null | head -c 300)" >&2
+  fi
 fi
 
 jq -n --arg status succeeded --arg base "$BASE_SHA" --arg summary "$SUMMARY" \

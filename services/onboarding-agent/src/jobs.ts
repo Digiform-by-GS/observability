@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
+import type { Provider } from './providers.js';
+
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 export type DeliveryMode = 'patch' | 'pr';
 
 export interface JobRequest {
   repoUrl: string;
+  provider: Provider;
   mode: DeliveryMode;
   serviceName?: string;
   team?: string;
@@ -30,6 +33,7 @@ export interface Job {
   id: string;
   status: JobStatus;
   repoUrl: string;
+  provider: Provider;
   mode: DeliveryMode;
   serviceName?: string;
   team?: string;
@@ -57,6 +61,7 @@ export class JobStore {
       id: randomUUID(),
       status: 'queued',
       repoUrl: req.repoUrl,
+      provider: req.provider,
       mode: req.mode,
       ...(req.serviceName ? { serviceName: req.serviceName } : {}),
       ...(req.team ? { team: req.team } : {}),

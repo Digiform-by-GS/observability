@@ -1,15 +1,15 @@
 # Onboarding Agent (hosted)
 
-A client submits a repository URL; an agent instruments it for the observability
-platform and returns a patch — or opens a pull request if they've granted write
-access. No Claude Code installation required on the client side, which is the
+A client submits a **GitHub or GitLab** repository URL; an agent instruments it
+for the observability platform and returns a patch — or opens a pull/merge
+request if they've granted write access. No Claude Code installation required on the client side, which is the
 whole point: the plugin only reaches teams that already use Claude Code, and
 this reaches everyone else.
 
 ## Shape
 
 ```
-POST /api/jobs   {repoUrl, mode, serviceName?, team?, baseBranch?, gitToken?}  -> 202 {id}
+POST /api/jobs   {repoUrl, mode, provider?, serviceName?, team?, baseBranch?, gitToken?}  -> 202 {id}
 GET  /api/jobs                                                                 -> recent jobs
 GET  /api/jobs/:id                                                             -> status + summary
 GET  /api/jobs/:id/patch                                                       -> the diff
@@ -52,6 +52,7 @@ Required in `.env`:
 | `PUBLIC_GRAFANA_URL` | same |
 | `ONBOARD_API_KEY` | shared secret for `POST`. Optional on a trusted LAN, **required** anywhere else, because a submitted job can carry a customer's repo token |
 | `ONBOARD_BUDGET_USD` | per-job ceiling, default `2.00` |
+| `ONBOARD_GITLAB_HOSTS` | comma-separated self-hosted GitLab hostnames. `gitlab.com`/`github.com` need no configuration; other hosts must be listed here or the caller must send `provider` |
 
 ## Cost and capacity
 
@@ -60,6 +61,24 @@ actual spend comes back in `result.json` as `cost_usd`. Jobs run **one at a
 time**: the host has 2 vCPU shared with the observability stack, and parallel
 agent runs would make the platform's latency a function of demo traffic.
 
+## Providers
+
+`github.com` and `gitlab.com` are detected from the URL. Self-hosted GitLab —
+common in this market — needs its hostname in `ONBOARD_GITLAB_HOSTS`, or a
+`provider` field on the request.
+
+Three things genuinely differ between them, and each fails confusingly if
+guessed wrong:
+
+| | GitHub | GitLab |
+|---|---|---|
+| Clone credential user | `x-access-token` | `oauth2` |
+| Request API | `POST /repos/{owner}/{repo}/pulls` | `POST /api/v4/projects/{url-encoded path}/merge_requests` |
+| Project path | always `owner/repo` | nested subgroups allowed, so the path must be URL-encoded whole |
+
+If the branch pushes but opening the request fails, the job still succeeds and
+says so — the client can open it by hand rather than re-running the agent.
+
 ## Security posture
 
 - Runner: `--cap-drop ALL`, `no-new-privileges`, non-root, tmpfs workspace,
@@ -67,6 +86,10 @@ agent runs would make the platform's latency a function of demo traffic.
 - Secrets reach the container through a stdin env-file, never argv — argv is
   visible to `docker inspect` and to any process reading `/proc`.
 - `gitToken` is never written to the job record, to disk, or to logs.
+- Accepting self-hosted hosts means accepting arbitrary ones, so `parseRepoUrl`
+  refuses loopback, RFC1918, link-local and cloud-metadata addresses — and the
+  platform's own hostnames, which are ordinary public IPs the private-range
+  rules would miss. Covered by tests.
 - The API server mounts the Docker socket, which is effectively host root. It
   is therefore kept toolchain-free and never touches client code itself. If
   this service is ever exposed beyond a trusted network, that trade-off needs

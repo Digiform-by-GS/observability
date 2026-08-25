@@ -4,6 +4,7 @@ import { access } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JobStore, type JobRequest, type DeliveryMode } from './jobs.js';
+import { parseRepoUrl, requestNoun } from './providers.js';
 import { runJob, artifactDir, type RunnerConfig } from './runner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -31,6 +32,26 @@ const cfg: RunnerConfig = {
 // Optional shared secret. A submitted job can carry a customer's repository
 // token, so on anything wider than a trusted LAN this should be set.
 const API_KEY = process.env.API_KEY ?? '';
+
+// Self-hosted GitLab is the norm for a lot of the target market, so the host
+// allow-list is configuration rather than something baked in.
+const GITLAB_HOSTS = (process.env.GITLAB_HOSTS ?? '')
+  .split(',')
+  .map((h) => h.trim())
+  .filter(Boolean);
+
+// Derived, not configured: the platform's own addresses are already known from
+// the endpoints this service hands to clients, so there is nothing to keep in
+// sync and no way to forget.
+const SELF_HOSTS = [cfg.otlpEndpoint, cfg.grafanaUrl, cfg.pyroscopeUrl]
+  .filter((u): u is string => Boolean(u))
+  .flatMap((u) => {
+    try {
+      return [new URL(u).hostname.toLowerCase()];
+    } catch {
+      return [];
+    }
+  });
 
 const store = new JobStore();
 const app = express();
@@ -78,21 +99,26 @@ async function drain(): Promise<void> {
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
 app.post('/api/jobs', (req, res) => {
-  const body = req.body as Partial<JobRequest>;
-  const repoUrl = (body.repoUrl ?? '').trim();
+  const body = req.body as Partial<JobRequest> & { provider?: string };
 
-  if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+?(\.git)?$/.test(repoUrl)) {
-    return res.status(400).json({
-      error: 'repoUrl must be an https github.com URL, e.g. https://github.com/acme/orders',
-    });
-  }
+  const parsed = parseRepoUrl(String(body.repoUrl ?? ''), {
+    gitlabHosts: GITLAB_HOSTS,
+    blockedHosts: SELF_HOSTS,
+    ...(body.provider ? { provider: String(body.provider) } : {}),
+  });
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+  const { provider, url: repoUrl } = parsed.repo;
+
   const mode: DeliveryMode = body.mode === 'pr' ? 'pr' : 'patch';
   if (mode === 'pr' && !body.gitToken) {
-    return res.status(400).json({ error: 'mode "pr" requires gitToken with write access' });
+    return res.status(400).json({
+      error: `mode "pr" requires gitToken with write access (it opens a ${requestNoun(provider)})`,
+    });
   }
 
   const jobReq: JobRequest = {
     repoUrl,
+    provider,
     mode,
     ...(body.serviceName ? { serviceName: String(body.serviceName).slice(0, 64) } : {}),
     ...(body.team ? { team: String(body.team).slice(0, 64) } : {}),

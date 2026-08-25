@@ -57,6 +57,7 @@ export async function runJob(
 
   const env: Record<string, string> = {
     REPO_URL: req.repoUrl,
+    PROVIDER: req.provider,
     MODE: req.mode,
     OTLP_ENDPOINT: cfg.otlpEndpoint,
     GRAFANA_URL: cfg.grafanaUrl,
