@@ -25,6 +25,7 @@ Thumbs.db
 npmjs_token.txt
 *token*.txt
 .npmrc.local
+access_token
 
 # Compiled binaries. `go build ./...` drops an executable named after the
 # directory into it — .exe on Windows — and a `git add -A` will happily commit
@@ -40,3 +41,7 @@ npmjs_token.txt
 # Transient dir created by the ESM-hook integration test (inside the package
 # because ESM resolution needs node_modules above it, not the OS temp dir).
 packages/observability/.esm-hook-test-*/
+
+# Onboarding agent build output and local deps
+services/onboarding-agent/dist/
+services/onboarding-agent/node_modules/

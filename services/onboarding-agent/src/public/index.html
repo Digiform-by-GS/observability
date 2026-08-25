@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onboarding Agent</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #666; --line: #e2e2e2;
+    --accent: #2563eb; --ok: #15803d; --bad: #b91c1c; --card: #fafafa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#131313; --fg:#ececec; --muted:#9a9a9a; --line:#2e2e2e;
+            --accent:#60a5fa; --ok:#4ade80; --bad:#f87171; --card:#1c1c1c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:2rem 1rem; background:var(--bg); color:var(--fg);
+         font:15px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif; }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size:1.5rem; margin:0 0 .25rem; }
+  p.sub { color:var(--muted); margin:0 0 1.75rem; }
+  form { display:grid; gap:.9rem; padding:1.25rem; border:1px solid var(--line);
+         border-radius:10px; background:var(--card); }
+  label { display:grid; gap:.3rem; font-size:.85rem; color:var(--muted); }
+  input, select { padding:.55rem .7rem; border:1px solid var(--line); border-radius:6px;
+                  background:var(--bg); color:var(--fg); font:inherit; font-size:.9rem; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:.9rem; }
+  @media (max-width:560px){ .row { grid-template-columns:1fr; } }
+  button { padding:.6rem 1.1rem; border:0; border-radius:6px; background:var(--accent);
+           color:#fff; font:inherit; font-weight:600; cursor:pointer; justify-self:start; }
+  button:disabled { opacity:.55; cursor:progress; }
+  .hint { font-size:.78rem; color:var(--muted); }
+  #jobs { margin-top:2rem; display:grid; gap:.75rem; }
+  .job { border:1px solid var(--line); border-radius:9px; padding:.9rem 1rem; background:var(--card); }
+  .job header { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
+  .repo { font-weight:600; word-break:break-all; }
+  .badge { font-size:.72rem; padding:.12rem .5rem; border-radius:999px; border:1px solid var(--line); }
+  .queued{color:var(--muted)} .running{color:var(--accent)}
+  .succeeded{color:var(--ok)} .failed{color:var(--bad)}
+  .summary { white-space:pre-wrap; font-size:.85rem; color:var(--fg); margin:.6rem 0 0;
+             max-height:16em; overflow:auto; }
+  .files { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.78rem;
+           color:var(--muted); margin:.4rem 0 0; }
+  .err { color:var(--bad); font-size:.85rem; margin:.5rem 0 0; }
+  a { color:var(--accent); }
+  .meta { font-size:.75rem; color:var(--muted); margin-top:.5rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Onboarding Agent</h1>
+  <p class="sub">Submit a GitHub or GitLab repository. An agent instruments it for the observability platform and returns a patch.</p>
+
+  <form id="f">
+    <label>Repository URL
+      <input name="repoUrl" placeholder="https://gitlab.com/acme/orders" required>
+    </label>
+    <div class="row">
+      <label>Service name <span class="hint">optional — the agent picks one if blank</span>
+        <input name="serviceName" placeholder="orders">
+      </label>
+      <label>Team <span class="hint">optional</span>
+        <input name="team" placeholder="payments">
+      </label>
+    </div>
+    <div class="row">
+      <label>Provider <span class="hint">auto-detected; set it only for self-hosted</span>
+        <select name="provider">
+          <option value="">Auto-detect</option>
+          <option value="github">GitHub</option>
+          <option value="gitlab">GitLab</option>
+        </select>
+      </label>
+      <label>Delivery
+        <select name="mode">
+          <option value="patch">Patch (read-only access)</option>
+          <option value="pr">Open a pull/merge request</option>
+        </select>
+      </label>
+      <label>Base branch <span class="hint">optional</span>
+        <input name="baseBranch" placeholder="main">
+      </label>
+    </div>
+    <label id="tokWrap" hidden>Access token <span class="hint">needs write access; used for this run only, never stored</span>
+      <input name="gitToken" type="password" autocomplete="off" placeholder="github_pat_… or glpat-…">
+    </label>
+    <button id="go">Onboard</button>
+  </form>
+
+  <div id="jobs"></div>
+</main>
+<script>
+const f = document.getElementById('f');
+const jobsEl = document.getElementById('jobs');
+const tokWrap = document.getElementById('tokWrap');
+f.mode.addEventListener('change', () => { tokWrap.hidden = f.mode.value !== 'pr'; });
+
+f.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = Object.fromEntries(
+    [...new FormData(f).entries()].filter(([, v]) => String(v).trim() !== '')
+  );
+  f.go.disabled = true;
+  try {
+    const r = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || 'submit failed'); return; }
+    f.gitToken.value = '';
+    await refresh();
+  } finally { f.go.disabled = false; }
+});
+
+function esc(s){ return String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])); }
+
+function render(jobs) {
+  jobsEl.innerHTML = jobs.map(j => `
+    <div class="job">
+      <header>
+        <span class="repo">${esc(j.repoUrl)}</span>
+        <span class="badge ${j.status}">${j.result?.noChanges ? 'nothing to onboard' : j.status}</span>
+        ${j.serviceName ? `<span class="badge">${esc(j.serviceName)}</span>` : ''}
+        <span class="badge">${j.mode}</span>
+        <span class="badge">${esc(j.provider ?? '')}</span>
+      </header>
+      ${j.result?.files_changed?.length
+        ? `<p class="files">${j.result.files_changed.map(esc).join('  ·  ')}</p>` : ''}
+      ${j.result?.summary ? `<p class="summary">${esc(j.result.summary)}</p>` : ''}
+      ${j.error ? `<p class="err">${esc(j.error)}</p>` : ''}
+      <p class="meta">
+        ${j.hasPatch ? `<a href="/api/jobs/${j.id}/patch">download patch</a> · ` : ''}
+        ${j.result?.pull_request ? `<a href="${esc(j.result.pull_request)}" target="_blank" rel="noopener">${j.provider === 'gitlab' ? 'merge request' : 'pull request'}</a> · ` : ''}
+        ${typeof j.result?.cost_usd === 'number' ? `$${j.result.cost_usd.toFixed(2)} · ` : ''}
+        ${esc(j.createdAt.replace('T',' ').slice(0,19))}
+      </p>
+    </div>`).join('');
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/jobs');
+    render(await r.json());
+  } catch { /* transient; the next tick retries */ }
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

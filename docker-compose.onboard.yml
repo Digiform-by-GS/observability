@@ -1,0 +1,49 @@
+# Hosted onboarding agent. A separate overlay from the platform on purpose:
+# it can be stopped, rebuilt, or removed without touching the observability
+# stack that teams depend on.
+#
+#   docker compose -f docker-compose.onboard.yml up -d --build
+#
+# Requires ANTHROPIC_API_KEY in .env, plus the runner image:
+#   docker build -f services/onboarding-agent/runner/Dockerfile -t digiform/onboarding-runner:dev .
+services:
+  onboarding-agent:
+    build:
+      context: ./services/onboarding-agent
+    image: digiform/onboarding-agent:dev
+    container_name: onboarding-agent
+    restart: unless-stopped
+    mem_limit: 384m
+    environment:
+      # Where onboarded services will send telemetry. This is baked into every
+      # generated .observability/platform.json, so it must be the address a
+      # CLIENT can reach — not an internal container name.
+      OTLP_ENDPOINT: ${PUBLIC_OTLP_ENDPOINT:?set PUBLIC_OTLP_ENDPOINT in .env}
+      GRAFANA_URL: ${PUBLIC_GRAFANA_URL:?set PUBLIC_GRAFANA_URL in .env}
+      PYROSCOPE_URL: ${PUBLIC_PYROSCOPE_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
+      RUNNER_IMAGE: ${RUNNER_IMAGE:-digiform/onboarding-runner:dev}
+      # Per-job ceiling. A runaway agent costs money, not just time.
+      BUDGET_USD: ${ONBOARD_BUDGET_USD:-2.00}
+      JOB_TIMEOUT_MS: ${ONBOARD_TIMEOUT_MS:-900000}
+      # Submitted jobs can carry a customer's repo token. Set this on anything
+      # broader than a trusted LAN.
+      API_KEY: ${ONBOARD_API_KEY:-}
+      # Self-hosted GitLab hostnames, comma-separated. gitlab.com and github.com
+      # are recognised without configuration; anything else must be listed here
+      # or the caller must state "provider" on the request.
+      GITLAB_HOSTS: ${ONBOARD_GITLAB_HOSTS:-}
+      ARTIFACT_ROOT: /var/lib/onboarding-agent/jobs
+    volumes:
+      # Docker-out-of-docker: the API spawns sibling containers. This grants
+      # effective root on the host, which is why the API image carries no
+      # toolchains and never handles client code itself — the runner does, in a
+      # locked-down container. Revisit if this ever faces the internet.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Shared with the runner by absolute host path, so the bind mount the API
+      # passes to `docker run` resolves on the HOST, not inside this container.
+      - /var/lib/onboarding-agent/jobs:/var/lib/onboarding-agent/jobs
+    ports:
+      - "8100:8100"
+    # Deliberately NOT on the `obs` network: this service has no business
+    # reaching Loki/Tempo/Mimir, and neither do the containers it spawns.
