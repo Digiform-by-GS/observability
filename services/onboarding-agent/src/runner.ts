@@ -70,15 +70,18 @@ export async function runJob(
     ...(req.gitToken ? { GIT_TOKEN: req.gitToken } : {}),
   };
 
-  // Secrets go in on stdin as an env-file, never as argv: anything in argv is
-  // visible to `docker inspect` and to every process on the host via /proc.
-  const envFileBody = Object.entries(env)
-    .map(([k, v]) => `${k}=${v}`)
-    .join('\n');
+  // Secrets must never reach argv — anything there is readable via
+  // `docker inspect` and /proc. `-e NAME` with no value tells docker to take
+  // the value from ITS OWN environment, so only variable NAMES are arguments.
+  //
+  // The first attempt was `--env-file /dev/stdin`, which fails outright:
+  // docker cannot open /dev/stdin when spawned with a piped stdin, and the
+  // job died with "no such device or address" before the agent ever ran.
+  const passThrough = Object.keys(env).flatMap((k) => ['-e', k]);
 
   const args = [
-    'run', '--rm', '-i',
-    '--env-file', '/dev/stdin',
+    'run', '--rm',
+    ...passThrough,
     '--network', 'bridge',
     '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges',
@@ -91,7 +94,12 @@ export async function runJob(
   ];
 
   return await new Promise<RunOutcome>((resolve) => {
-    const child = spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn('docker', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      // The values live here, in the docker CLI's own environment; the
+      // `-e NAME` flags above are what pull them into the container.
+      env: { ...process.env, ...env },
+    });
     let stderr = '';
     let settled = false;
 
@@ -137,6 +145,5 @@ export async function runJob(
       }
     });
 
-    child.stdin.end(envFileBody);
   });
 }
