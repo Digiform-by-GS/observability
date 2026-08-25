@@ -88,7 +88,11 @@ export async function runJob(
     '--pids-limit', '512',
     '--memory', '1g',
     '--cpus', '1.0',
-    '--tmpfs', '/work:rw,exec,size=512m',
+    // uid/gid are required: mounting a tmpfs over /work discards the
+    // ownership the Dockerfile set, leaving a root-owned filesystem that the
+    // non-root runner cannot write to — git fails with 'could not create
+    // work tree dir'. exec is needed because git invokes helper binaries.
+    '--tmpfs', `/work:rw,exec,size=512m,uid=${RUNNER_UID},gid=${RUNNER_GID}`,
     '-v', `${out}:/out`,
     cfg.image,
   ];
