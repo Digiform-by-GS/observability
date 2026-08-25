@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, readFile } from 'node:fs/promises';
+import { chown, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { JobRequest, JobResult } from './jobs.js';
 
@@ -13,6 +13,10 @@ export interface RunnerConfig {
   budgetUsd: string;
   timeoutMs: number;
 }
+
+// Must match the `runner` user created in runner/Dockerfile.
+const RUNNER_UID = 10001;
+const RUNNER_GID = 10001;
 
 export interface RunOutcome {
   ok: boolean;
@@ -44,6 +48,12 @@ export async function runJob(
 ): Promise<RunOutcome> {
   const out = artifactDir(cfg.artifactRoot, jobId);
   await mkdir(out, { recursive: true });
+  // The API server runs as root but the runner writes as uid 10001 (non-root by
+  // design). Without this the very first write inside the container fails with
+  // EACCES on a directory the API just created.
+  await chown(out, RUNNER_UID, RUNNER_GID).catch(() => {
+    console.warn(`[runner] could not chown ${out}; the job may fail to write artifacts`);
+  });
 
   const env: Record<string, string> = {
     REPO_URL: req.repoUrl,
