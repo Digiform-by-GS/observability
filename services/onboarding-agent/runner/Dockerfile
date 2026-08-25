@@ -7,6 +7,9 @@
 # remote code execution via postinstall scripts, one hop from the shared
 # observability platform. Verification stays on the client side, where running
 # their own app is unremarkable.
+# BUILD CONTEXT IS THE REPO ROOT, not this directory — the image bakes in the
+# plugin, which lives at the root. Build with:
+#   docker build -f services/onboarding-agent/runner/Dockerfile -t digiform/onboarding-runner:dev .
 FROM node:22-slim
 
 RUN apt-get update \
@@ -22,7 +25,7 @@ RUN npm install -g @anthropic-ai/claude-code@2.1.76
 COPY plugin /opt/observability-plugin/plugin
 COPY .claude-plugin /opt/observability-plugin/.claude-plugin
 
-COPY runner/run-job.sh /usr/local/bin/run-job
+COPY services/onboarding-agent/runner/run-job.sh /usr/local/bin/run-job
 RUN chmod +x /usr/local/bin/run-job
 
 # Unprivileged: the job has no reason to be root, and the clone is untrusted.
