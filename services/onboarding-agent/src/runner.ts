@@ -136,8 +136,10 @@ export async function runJob(
       try {
         const raw = await readFile(join(out, 'result.json'), 'utf8');
         const parsed = JSON.parse(raw) as JobResult & { status?: string; error?: string };
-        if (parsed.status === 'succeeded') {
-          finish({ ok: true, result: parsed });
+        // 'no_changes' is a legitimate answer — a repo with nothing to onboard.
+        // Reporting it as failure is what taught the agent to invent files.
+        if (parsed.status === 'succeeded' || parsed.status === 'no_changes') {
+          finish({ ok: true, result: { ...parsed, noChanges: parsed.status === 'no_changes' } });
         } else {
           finish({ ok: false, error: parsed.error ?? 'job failed without a reason' });
         }

@@ -121,7 +121,7 @@ function render(jobs) {
     <div class="job">
       <header>
         <span class="repo">${esc(j.repoUrl)}</span>
-        <span class="badge ${j.status}">${j.status}</span>
+        <span class="badge ${j.status}">${j.result?.noChanges ? 'nothing to onboard' : j.status}</span>
         ${j.serviceName ? `<span class="badge">${esc(j.serviceName)}</span>` : ''}
         <span class="badge">${j.mode}</span>
         <span class="badge">${esc(j.provider ?? '')}</span>

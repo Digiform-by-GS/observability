@@ -22,6 +22,8 @@ export interface JobRequest {
 }
 
 export interface JobResult {
+  /** True when the agent correctly found nothing to onboard. */
+  noChanges?: boolean;
   files_changed?: string[];
   summary?: string;
   cost_usd?: number | null;

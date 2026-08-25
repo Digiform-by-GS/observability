@@ -89,6 +89,12 @@ Constraints for this environment:
   summary that the client should run it after applying the change.
 - Change only what onboarding requires. No refactors, no formatting sweeps,
   no dependency upgrades beyond the observability library itself.
+- If this repository has no service you can onboard — no Node or Go
+  application, only docs, or an unsupported stack — then make NO changes at
+  all and say so plainly in your summary. Reporting 'nothing to onboard' is a
+  correct, expected outcome. Do NOT invent files, scaffolding, or config to
+  show progress; an empty result the client can trust is worth more than a
+  plausible-looking one they cannot.
 
 Finish with a short summary: which files you changed, the service name you
 used, and anything the client must do by hand."
@@ -110,8 +116,16 @@ COST="$(jq -r '.total_cost_usd // empty' "$OUT/agent.json" 2>/dev/null)"
 
 # --- results -------------------------------------------------------------------
 git add -A
-if git diff --cached --quiet; then
-  fail "the agent made no changes — the repository may already be onboarded, or the stack is unsupported"
+# Everything the agent could have changed, minus the platform.json this script
+# seeded — if that file is the only difference, the agent itself changed nothing.
+AGENT_CHANGES="$(git diff --cached --name-only | grep -v '^\.observability/platform\.json$' || true)"
+if [ -z "$AGENT_CHANGES" ]; then
+  # Not a failure. A repository with nothing to onboard is a real answer, and
+  # the summary explains it; forcing this to fail is what pushes the agent to
+  # invent files so the job "succeeds".
+  jq -n --arg status no_changes --arg summary "$SUMMARY" --arg cost "$COST"     '{status:$status, summary:$summary, cost_usd:(($cost|tonumber?) // null), files_changed:[]}'     > "$OUT/result.json"
+  echo "no changes: nothing to onboard in this repository"
+  exit 0
 fi
 
 git diff --cached > "$OUT/onboarding.patch"
