@@ -1,14 +1,17 @@
-# Alert rules mirroring the provisioned dashboards, plus the two platform
-# guardrails this stack depends on.
+# Service-level alert rules, mirroring the provisioned dashboards, plus the
+# span-name cardinality guardrail.
 #
-# Every expression was checked against the metric names Mimir actually holds.
-# Two things are deliberately NOT alerted on, because they do not exist here:
-#   - cortex_* / loki_* / tempo_* : the backends' own metrics are not scraped by
-#     the collector, so no platform-internal alert is possible yet. The
-#     series-count rule below computes it from the data plane instead.
-#   - traces_service_graph_request_failed_total : the Blast Radius dashboard
-#     queries it, but Tempo only creates that series once a service-graph edge
-#     actually fails, so a rule on it would sit in NoData indefinitely.
+# Platform-internal health (backends down, export failures, discarded writes,
+# Mimir's series count) lives in platform-rules.yaml, which became possible once
+# the collector started scraping the backends. The series-cap rule that used to
+# sit here approximated the count with count({__name__=~".+"}) because Mimir's
+# own metrics were unavailable; it now uses cortex_ingester_memory_series -
+# authoritative, and far cheaper than a query touching every series.
+#
+# One metric is deliberately NOT alerted on: traces_service_graph_request_failed_total.
+# The Blast Radius dashboard queries it, but Tempo only creates that series once
+# a service-graph edge actually fails, so a rule on it would sit in NoData
+# indefinitely. Worth knowing that panel has never had data.
 apiVersion: 1
 
 groups:
@@ -170,42 +173,5 @@ groups:
               # real API and well below the point where Mimir is in danger.
               conditions:
                 - evaluator: { type: gt, params: [200] }
-        noDataState: OK
-        execErrState: Error
-
-      # The pilot's own health criterion: active series below 70% of the cap.
-      # Computed from the data plane because Mimir's cortex_* metrics are not
-      # scraped - see the note at the top of this file.
-      - uid: mimir-series-approaching-cap
-        title: Metric series approaching the platform cap
-        condition: THRESHOLD
-        for: 15m
-        annotations:
-          summary: "{{ $value }} active series - the cap is 150000"
-          description: >-
-            max_global_series_per_user in mimir-config.yaml is 150000. Past it,
-            Mimir rejects writes with a 4xx for every tenant on the platform,
-            not only whichever one grew. Find the offender with
-            topk(10, count by (service) (count by (service, span_name) (traces_spanmetrics_calls_total)))
-        labels:
-          severity: critical
-          signal: cardinality
-        data:
-          - refId: SERIES
-            relativeTimeRange: { from: 900, to: 0 }
-            datasourceUid: prometheus
-            model:
-              refId: SERIES
-              instant: true
-              expr: count({__name__=~".+"})
-          - refId: THRESHOLD
-            datasourceUid: __expr__
-            model:
-              refId: THRESHOLD
-              type: threshold
-              expression: SERIES
-              # 70% of 150000.
-              conditions:
-                - evaluator: { type: gt, params: [105000] }
         noDataState: OK
         execErrState: Error

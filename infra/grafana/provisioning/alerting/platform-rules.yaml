@@ -1,0 +1,207 @@
+# Alerts on the platform's own health, from the metrics the collector now
+# scrapes off Mimir, Loki, Tempo, Pyroscope and itself.
+#
+# These answer the question the service-level rules structurally cannot: is the
+# observability stack itself working? Every other dashboard and alert in this
+# system is built from data that arrives through this pipeline, so when the
+# pipeline breaks, everything else goes quiet and looks healthy.
+#
+# Label names below were read off the live series, not assumed:
+#   collector self-metrics carry `exporter` and `data_type`
+#   every scraped target carries `service_instance_id` (mimir:9009, loki:3100, ...)
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: platform-internal
+    folder: Observability
+    interval: 1m
+    rules:
+      # The most basic question, and previously unanswerable: is it still there?
+      - uid: platform-backend-down
+        title: Platform component is not responding
+        condition: THRESHOLD
+        for: 2m
+        annotations:
+          summary: "{{ $labels.service_instance_id }} is not responding to scrapes"
+          description: >-
+            The collector cannot reach this component. If it is a backend,
+            whichever signal it stores is being dropped right now; if it is the
+            collector itself, all four are. Check `docker compose ps` and the
+            container's logs. Note that a component can be up and still be
+            failing writes - the discard rules cover that case separately.
+        labels:
+          severity: critical
+          signal: platform
+        data:
+          - refId: UP
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: UP
+              instant: true
+              expr: up
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: UP
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        # NoData is meaningful here: if the series vanishes entirely, the
+        # collector has stopped scraping, which is itself the outage.
+        noDataState: Alerting
+        execErrState: Error
+
+      # If the collector cannot export, telemetry is being destroyed. Nothing
+      # downstream can report this, because nothing downstream is receiving it.
+      - uid: platform-collector-export-failing
+        title: Collector is failing to export telemetry
+        condition: THRESHOLD
+        for: 5m
+        annotations:
+          summary: "Collector cannot deliver {{ $labels.data_type }} to {{ $labels.exporter }}"
+          description: >-
+            Signals are being dropped between the collector and the backend.
+            Everything that depends on this data - dashboards, the other alerts
+            in this folder, the verify skill - will look calm while it happens,
+            because they are all downstream of this pipeline. Check the target
+            backend is up and that the collector's queue is not saturated.
+        labels:
+          severity: critical
+          signal: platform
+        data:
+          - refId: FAILED
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: FAILED
+              instant: true
+              # Regex match rather than named metrics: these counters only come
+              # into existence on the first failure, so naming them explicitly
+              # would leave the rule in NoData until the day it matters and
+              # give no chance to notice it was never wired up.
+              expr: sum by (exporter, data_type) (rate({__name__=~"otelcol_exporter_send_failed_.+"}[5m]))
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: FAILED
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+
+      # Backpressure, before it becomes loss. The queue filling is the warning
+      # that the export failures above are about to start.
+      - uid: platform-collector-queue-saturating
+        title: Collector export queue is filling up
+        condition: THRESHOLD
+        for: 10m
+        annotations:
+          summary: "{{ $labels.exporter }} queue is {{ humanizePercentage $value }} full"
+          description: >-
+            The collector is accepting telemetry faster than the backend takes
+            it. When the queue fills, new data is dropped. This is the early
+            warning for 'Collector is failing to export' - a backend is likely
+            slow or struggling rather than down.
+        labels:
+          severity: warning
+          signal: platform
+        data:
+          - refId: RATIO
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: RATIO
+              instant: true
+              expr: >-
+                sum by (exporter) (otelcol_exporter_queue_size)
+                / clamp_min(sum by (exporter) (otelcol_exporter_queue_capacity), 1)
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: RATIO
+              conditions:
+                - evaluator: { type: gt, params: [0.8] }
+        noDataState: OK
+        execErrState: Error
+
+      # A backend can be up and still refusing writes - over a limit, malformed
+      # data, or a tenant past its cap. That is invisible from `up` alone.
+      - uid: platform-writes-discarded
+        title: A backend is discarding writes
+        condition: THRESHOLD
+        for: 5m
+        annotations:
+          summary: "Writes are being discarded by a platform backend"
+          description: >-
+            Mimir, Loki or Tempo is rejecting data it was sent. The usual cause
+            is a limit being exceeded - most often the 150k series cap, which
+            rejects writes for EVERY tenant rather than only the one that grew.
+            Check the cardinality alerts alongside this one.
+        labels:
+          severity: critical
+          signal: platform
+        data:
+          - refId: DISCARDED
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: DISCARDED
+              instant: true
+              # Same reasoning as the export-failure rule: these families do not
+              # exist until the first discard occurs.
+              expr: sum(rate({__name__=~"cortex_discarded_samples_total|loki_discarded_samples_total|tempo_discarded_spans_total"}[5m]))
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: DISCARDED
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+
+      # Replaces the data-plane approximation that count({__name__=~".+"}) gave
+      # before the platform was scraped. This is Mimir's own count of what its
+      # ingester holds - authoritative, and far cheaper to evaluate than a query
+      # that touches every series in the database.
+      - uid: platform-mimir-series-cap
+        title: Mimir active series approaching the cap
+        condition: THRESHOLD
+        for: 15m
+        annotations:
+          summary: "{{ $value }} active series - the cap is 150000"
+          description: >-
+            max_global_series_per_user in mimir-config.yaml is 150000. Past it,
+            Mimir rejects writes with a 4xx for every tenant on the platform,
+            not only whichever one grew. Find the offender with
+            topk(10, count by (service) (count by (service, span_name) (traces_spanmetrics_calls_total)))
+        labels:
+          severity: critical
+          signal: cardinality
+        data:
+          - refId: SERIES
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: SERIES
+              instant: true
+              expr: sum(cortex_ingester_memory_series)
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: SERIES
+              # 70% of 150000 - the pilot's own health criterion.
+              conditions:
+                - evaluator: { type: gt, params: [105000] }
+        noDataState: OK
+        execErrState: Error
