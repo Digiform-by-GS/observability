@@ -1,0 +1,186 @@
+# Service-level alert rules, mirroring the provisioned dashboards, plus the
+# span-name cardinality guardrail.
+#
+# Platform-internal health (backends down, export failures, discarded writes,
+# Mimir's series count) lives in platform-rules.yaml, which became possible once
+# the collector started scraping the backends. The series-cap rule that used to
+# sit here approximated the count with count({__name__=~".+"}) because Mimir's
+# own metrics were unavailable; it now uses cortex_ingester_memory_series -
+# authoritative, and far cheaper than a query touching every series.
+#
+# One metric is deliberately NOT alerted on: traces_service_graph_request_failed_total.
+# The Blast Radius dashboard queries it, but Tempo only creates that series once
+# a service-graph edge actually fails, so a rule on it would sit in NoData
+# indefinitely. Worth knowing that panel has never had data.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: service-health
+    folder: Observability
+    # Matches the 5m rate windows below; evaluating faster only adds noise.
+    interval: 1m
+    rules:
+      # --- mirrors "Impacted services - error % of traffic" on Blast Radius ---
+      - uid: svc-error-rate-high
+        title: Service error rate above 5%
+        condition: THRESHOLD
+        for: 5m
+        annotations:
+          summary: "{{ $labels.service }} is failing {{ humanizePercentage $value }} of its requests"
+          description: >-
+            Errors as a share of that service's own traffic, so a low-volume
+            service is not drowned out by a busy one. Open the Blast Radius
+            dashboard to see whether a dependency is the cause or the victim.
+        labels:
+          severity: warning
+          signal: traces
+        data:
+          - refId: RATIO
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: RATIO
+              instant: true
+              # clamp_min avoids a divide-by-zero producing +Inf the moment a
+              # service goes quiet - otherwise every idle service alerts.
+              expr: >-
+                sum by (service) (rate(traces_spanmetrics_calls_total{status_code="STATUS_CODE_ERROR", span_kind="SPAN_KIND_SERVER"}[5m]))
+                / clamp_min(sum by (service) (rate(traces_spanmetrics_calls_total{span_kind="SPAN_KIND_SERVER"}[5m])), 0.001)
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: RATIO
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+        noDataState: OK
+        execErrState: Error
+
+      # --- mirrors "p95 latency" on Observability Overview ---
+      - uid: svc-latency-p95-high
+        title: Service p95 latency above 2s
+        condition: THRESHOLD
+        for: 10m
+        annotations:
+          summary: "{{ $labels.service }} p95 is {{ humanizeDuration $value }}"
+          description: >-
+            Sustained for 10m, so one slow batch does not page anyone. Span
+            metrics carry exemplars - click through to an example trace to see
+            which span actually spent the time.
+        labels:
+          severity: warning
+          signal: traces
+        data:
+          - refId: P95
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: P95
+              instant: true
+              expr: >-
+                histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket{span_kind="SPAN_KIND_SERVER"}[5m])))
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: P95
+              # traces_spanmetrics_latency is in SECONDS.
+              conditions:
+                - evaluator: { type: gt, params: [2] }
+        noDataState: OK
+        execErrState: Error
+
+      # --- not on any dashboard, and the most operationally useful of the three ---
+      - uid: svc-stopped-reporting
+        title: Service stopped sending telemetry
+        condition: THRESHOLD
+        for: 10m
+        annotations:
+          summary: "{{ $labels.service }} has sent no spans for 10 minutes"
+          description: >-
+            The service was reporting and went quiet - either an outage or a
+            broken exporter. A broken exporter is silent by nature, which is
+            exactly why this needs an alert rather than a dashboard. Check the
+            service is up, then that OTEL_EXPORTER_OTLP_ENDPOINT is still
+            correct. Caveat: this fires only while the series remains within
+            Prometheus staleness; a service absent long enough for its series to
+            expire drops out of the query rather than alerting.
+        labels:
+          severity: critical
+          signal: traces
+        data:
+          - refId: RATE
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: RATE
+              instant: true
+              expr: sum by (service) (rate(traces_spanmetrics_calls_total[10m]))
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: RATE
+              conditions:
+                - evaluator: { type: lt, params: [0.001] }
+        noDataState: OK
+        execErrState: Error
+
+  - orgId: 1
+    name: platform-guardrails
+    folder: Observability
+    interval: 5m
+    rules:
+      # The failure this stack was bitten by twice: raw paths in span names
+      # (bare otelhttp on a Go server), and on Node an unpatched framework
+      # producing a bare method. Both surface here first, as a service whose
+      # distinct span-name count climbs instead of staying flat.
+      - uid: span-name-cardinality-high
+        title: Service is minting too many distinct span names
+        condition: THRESHOLD
+        for: 15m
+        annotations:
+          summary: "{{ $labels.service }} has {{ $value }} distinct span names"
+          description: >-
+            Span names should be route templates and stay flat. A climbing count
+            means concrete paths are leaking into span names, and every distinct
+            name multiplies by the latency histogram bucket count. This is what
+            fills Mimir - and Mimir then rejects writes for EVERY tenant, not
+            just the offender. Check the service uses its framework's OTel
+            middleware rather than bare otelhttp.
+        labels:
+          severity: warning
+          signal: cardinality
+        data:
+          - refId: NAMES
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: NAMES
+              instant: true
+              expr: count by (service) (count by (service, span_name) (traces_spanmetrics_calls_total))
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: NAMES
+              # A normal service has tens of routes. 200 sits well above any
+              # real API and well below the point where Mimir is in danger.
+              conditions:
+                - evaluator: { type: gt, params: [200] }
+        noDataState: OK
+        execErrState: Error
+
+# Removing a rule from this file does NOT remove it from Grafana — provisioned
+# rules are deleted only when explicitly declared here. Without this the old
+# series-cap rule kept running alongside its replacement in platform-rules.yaml,
+# double-alerting to Discord, and doing it with the expensive
+# count({__name__=~".+"}) query the replacement was written to avoid.
+deleteRules:
+  - orgId: 1
+    uid: mimir-series-approaching-cap

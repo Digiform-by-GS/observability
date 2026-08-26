@@ -17,6 +17,46 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+  # Scrapes the platform's own components. Without this there is no way to see
+  # ingest failures, rejected writes, or a backend that has stopped answering —
+  # the stack can be losing every signal while its dashboards look calm, because
+  # dashboards are built from the very data that is not arriving.
+  #
+  # The keep-list is not optional. These four endpoints expose ~11,700 metric
+  # lines between them; ingesting that wholesale would add roughly 8% of the
+  # 150k series cap in infrastructure alone, which is precisely the failure the
+  # cap exists to prevent. The allowlist below holds it to a couple of hundred.
+  prometheus/platform:
+    config:
+      scrape_configs:
+        - job_name: platform-backends
+          scrape_interval: 30s
+          static_configs:
+            - targets: [mimir:9009, loki:3100, tempo:3200, pyroscope:4040]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              action: keep
+              # Several of these do not exist yet: Prometheus counters are only
+              # created on first occurrence, so the discard/failure families
+              # appear the moment something actually goes wrong. Listing them
+              # now means they are captured then, rather than discovered missing
+              # during an incident.
+              regex: >-
+                cortex_ingester_memory_series|cortex_discarded_samples_total|cortex_distributor_samples_in_total|cortex_ingester_ingested_samples_failures_total|loki_discarded_samples_total|loki_discarded_bytes_total|loki_distributor_bytes_received_total|tempo_discarded_spans_total|tempo_distributor_spans_received_total|tempo_distributor_bytes_received_total|process_resident_memory_bytes
+        - job_name: otel-collector
+          scrape_interval: 30s
+          # The collector scrapes itself. This is the highest-value target of
+          # the five: if the collector cannot export, every signal is being
+          # dropped on the floor, and nothing downstream can report that because
+          # nothing downstream is receiving anything.
+          static_configs:
+            - targets: [localhost:8888]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              action: keep
+              regex: >-
+                otelcol_exporter_send_failed_.*|otelcol_exporter_enqueue_failed_.*|otelcol_exporter_queue_size|otelcol_exporter_queue_capacity|otelcol_receiver_refused_.*|otelcol_processor_dropped_.*
+
 processors:
   memory_limiter:
     # Soft limit kept BELOW the container's mem_limit so this graceful limiter —
@@ -123,4 +163,20 @@ service:
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, resource, resource/prune-metric-labels, batch]
+      exporters: [prometheusremotewrite]
+
+    # Platform self-monitoring rides a SEPARATE pipeline, following the same
+    # reasoning the infra pipeline used: a stalled scrape must not apply
+    # backpressure to the OTLP pipelines carrying tenants' telemetry.
+    #
+    # It deliberately does NOT include resource/prune-metric-labels. The
+    # prometheus receiver encodes the scrape target as service.instance.id
+    # (mimir:9009, loki:3100, ...), and resource_to_telemetry_conversion turns
+    # that into a label. Pruning it — correct for app metrics, where it is a
+    # per-process UUID that churns on restart — would collapse all five targets
+    # into one indistinguishable series. Here it is the target's identity and
+    # is bounded at five values.
+    metrics/platform:
+      receivers: [prometheus/platform]
+      processors: [memory_limiter, resource, batch]
       exporters: [prometheusremotewrite]

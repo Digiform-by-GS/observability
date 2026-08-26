@@ -78,6 +78,20 @@ limits:
   # A limit that rejects loudly beats silent unbounded growth: writes over the
   # cap fail with HTTP 4xx and surface in the collector log, rather than
   # quietly eating Mimir's memory.
+  # Long-term retention for metric blocks. Unset, Mimir defaults to 0s, which
+  # means KEEP FOREVER — Loki and Tempo were both given 168h and this was
+  # silently left infinite, so metrics were the one signal that grew without
+  # bound on a local disk.
+  #
+  # 30d rather than 168h on purpose: metrics are what dashboards and capacity
+  # trending read weeks later, and they are the cheapest signal per sample.
+  # Sizing at the cap above: 150k series x 1 sample/15s is ~864M samples/day,
+  # ~1.1 GB/day compressed, so 30d is ~33 GB — comfortable on a 197 GB disk.
+  # Raising this is a deliberate disk-budget decision, not a default to drift.
+  #
+  # Not to be confused with blocks_storage.tsdb.retention_period (13h), which
+  # is only how long the ingester holds blocks locally before shipping them.
+  compactor_blocks_retention_period: 30d
   max_global_series_per_user: 150000
   max_global_series_per_metric: 20000
   max_label_names_per_series: 30
