@@ -175,3 +175,12 @@ groups:
                 - evaluator: { type: gt, params: [200] }
         noDataState: OK
         execErrState: Error
+
+# Removing a rule from this file does NOT remove it from Grafana — provisioned
+# rules are deleted only when explicitly declared here. Without this the old
+# series-cap rule kept running alongside its replacement in platform-rules.yaml,
+# double-alerting to Discord, and doing it with the expensive
+# count({__name__=~".+"}) query the replacement was written to avoid.
+deleteRules:
+  - orgId: 1
+    uid: mimir-series-approaching-cap
