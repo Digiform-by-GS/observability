@@ -126,6 +126,20 @@ services:
     image: grafana/pyroscope:2.1.1
     container_name: pyroscope
     mem_limit: 384m
+    # Pyroscope ships NO time-based retention. Its only default is a disk-pressure
+    # policy that stops just 10 GiB short of full, so on a shared host it grows
+    # until it starves Loki/Tempo/Mimir — none of which have that protection, and
+    # all of which would simply fail to write. It was already the largest consumer
+    # here by 16x while carrying the least-consulted signal.
+    #
+    # 168h matches Loki and Tempo: profiles answer "what allocated this, recently",
+    # and nobody reads a month-old flame graph.
+    #
+    # The image's default Cmd is the config file flag, so it must be repeated —
+    # overriding `command` replaces it, and dropping it stops the server booting.
+    command:
+      - -config.file=/etc/pyroscope/config.yaml
+      - -compactor.blocks-retention-period=168h
     volumes:
       - pyroscope-data:/data
     ports:
