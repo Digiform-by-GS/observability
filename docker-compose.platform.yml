@@ -126,4 +126,8 @@ services:
       # silently deploy a known password.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # Consumed by provisioning/alerting/contact-points.yaml via $__env{}.
+      # Kept out of the provisioning file because a Discord webhook is a
+      # credential and this repository is public.
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
     # Port 3000 is inherited from the base file.
