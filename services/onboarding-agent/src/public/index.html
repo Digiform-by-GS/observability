@@ -8,10 +8,12 @@
   :root {
     --bg: #ffffff; --fg: #1a1a1a; --muted: #666; --line: #e2e2e2;
     --accent: #2563eb; --ok: #15803d; --bad: #b91c1c; --card: #fafafa;
+    --warnbg: #fffbeb; --warnline: #fcd34d;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#131313; --fg:#ececec; --muted:#9a9a9a; --line:#2e2e2e;
-            --accent:#60a5fa; --ok:#4ade80; --bad:#f87171; --card:#1c1c1c; }
+            --accent:#60a5fa; --ok:#4ade80; --bad:#f87171; --card:#1c1c1c;
+            --warnbg:#2a2410; --warnline:#78641f; }
   }
   * { box-sizing: border-box; }
   body { margin:0; padding:2rem 1rem; background:var(--bg); color:var(--fg);
@@ -42,6 +44,17 @@
   .files { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.78rem;
            color:var(--muted); margin:.4rem 0 0; }
   .err { color:var(--bad); font-size:.85rem; margin:.5rem 0 0; }
+  .env { margin:.7rem 0 0; }
+  .env h4, .review h4 { font-size:.8rem; margin:0 0 .3rem; font-weight:600; }
+  .env pre { margin:0; padding:.6rem .7rem; background:var(--bg); border:1px solid var(--line);
+             border-radius:6px; font-size:.78rem; overflow-x:auto; }
+  .review { margin:.7rem 0 0; padding:.6rem .7rem; border-radius:6px;
+            border:1px solid var(--warnline); background:var(--warnbg); }
+  .review ul { margin:0; padding-left:1.1rem; font-size:.78rem;
+               font-family:ui-monospace,Menlo,Consolas,monospace; }
+  .review p { margin:.35rem 0 0; font-size:.75rem; color:var(--muted); }
+  .copy { float:right; font-size:.72rem; background:none; border:1px solid var(--line);
+          color:var(--muted); padding:.1rem .45rem; border-radius:4px; cursor:pointer; }
   a { color:var(--accent); }
   .meta { font-size:.75rem; color:var(--muted); margin-top:.5rem; }
 </style>
@@ -50,6 +63,7 @@
 <main>
   <h1>Onboarding Agent</h1>
   <p class="sub">Submit a GitHub or GitLab repository. An agent instruments it for the observability platform and returns a patch.</p>
+  <p class="sub" style="margin-top:-1.35rem;font-size:.8rem">The agent reads and edits source only &mdash; it never runs your code, and never writes secrets files. Review the patch before applying.</p>
 
   <form id="f">
     <label>Repository URL
@@ -114,6 +128,14 @@ f.addEventListener('submit', async (e) => {
   } finally { f.go.disabled = false; }
 });
 
+function copyEnv(btn) {
+  const pre = btn.closest('.env').querySelector('pre');
+  navigator.clipboard.writeText(pre.textContent).then(() => {
+    btn.textContent = 'copied';
+    setTimeout(() => { btn.textContent = 'copy'; }, 1500);
+  }).catch(() => { btn.textContent = 'select manually'; });
+}
+
 function esc(s){ return String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])); }
 
 function render(jobs) {
@@ -129,6 +151,20 @@ function render(jobs) {
       ${j.result?.files_changed?.length
         ? `<p class="files">${j.result.files_changed.map(esc).join('  ·  ')}</p>` : ''}
       ${j.result?.summary ? `<p class="summary">${esc(j.result.summary)}</p>` : ''}
+      ${j.result?.required_env?.length ? `
+        <div class="env">
+          <h4>Set these environment variables
+            <button class="copy" onclick="copyEnv(this)">copy</button></h4>
+          <pre>${esc(j.result.required_env.join('
+'))}</pre>
+        </div>` : ''}
+      ${j.result?.files_for_review?.length ? `
+        <div class="review">
+          <h4>Worth a closer look</h4>
+          <ul>${j.result.files_for_review.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+          <p>Outside what onboarding normally touches. Not necessarily wrong &mdash;
+             just read these before applying.</p>
+        </div>` : ''}
       ${j.error ? `<p class="err">${esc(j.error)}</p>` : ''}
       <p class="meta">
         ${j.hasPatch ? `<a href="/api/jobs/${j.id}/patch">download patch</a> · ` : ''}

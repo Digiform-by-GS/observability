@@ -33,6 +33,10 @@ services:
       # are recognised without configuration; anything else must be listed here
       # or the caller must state "provider" on the request.
       GITLAB_HOSTS: ${ONBOARD_GITLAB_HOSTS:-}
+      # Job artifacts are the client's source code — the patch is a diff of
+      # their repository and agent.json is a transcript of everything the agent
+      # read. Without a TTL this host accumulates other people's code forever.
+      ARTIFACT_TTL_MS: ${ONBOARD_ARTIFACT_TTL_MS:-86400000}
       ARTIFACT_ROOT: /var/lib/onboarding-agent/jobs
     volumes:
       # Docker-out-of-docker: the API spawns sibling containers. This grants

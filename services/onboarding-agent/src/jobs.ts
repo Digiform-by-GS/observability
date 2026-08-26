@@ -25,6 +25,17 @@ export interface JobResult {
   /** True when the agent correctly found nothing to onboard. */
   noChanges?: boolean;
   files_changed?: string[];
+  /** Files matching the shapes onboarding is expected to touch. */
+  files_expected?: string[];
+  /** Everything else the diff touched — surfaced for a human to read, not blocked. */
+  files_for_review?: string[];
+  /**
+   * Variables the client must set themselves. Deliberately absent from the
+   * patch: they belong in .env or deployment config, which are gitignored, so
+   * writing them would have dropped them silently.
+   */
+  required_env?: string[];
+  service_name?: string;
   summary?: string;
   cost_usd?: number | null;
   pull_request?: string | null;

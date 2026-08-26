@@ -21,6 +21,17 @@ clones the repo, seeds `.observability/platform.json`, runs the
 `observability-onboard` plugin's `onboard` skill headless (`claude -p
 --plugin-dir`), and emits `onboarding.patch` plus `result.json`.
 
+## Guardrails
+
+| Concern | Control |
+|---|---|
+| Executing client code | `--allowedTools "Read Edit Write Glob Grep"` — no `Bash`. The agent cannot run commands, install packages, or start the app |
+| Touching secrets | The prompt forbids creating or editing `.env` and friends. Those are normally gitignored, so an edit there would vanish from the patch and the client would receive code that silently sends telemetry nowhere |
+| Env vars the client must set | Derived by the runner from its own inputs — not asked of the agent — and returned in `required_env`, shown in the UI and in the PR/MR body |
+| Changes beyond onboarding | Every changed file is classified **from the real diff** into `files_expected` and `files_for_review`. Surfaced, never blocked: a legitimate edit can live anywhere, and the reviewer is the judge. Computing it from the diff rather than the agent's summary means an over-claimed summary cannot hide a file |
+| Retention on this host | `ARTIFACT_TTL_MS` (default 24h). Patches are the client's source and `agent.json` is a transcript of everything the agent read; without a TTL this box becomes a permanent archive of other people's code |
+| Retention at Anthropic | **Not a code control.** Code is sent to the API by design. Configure Zero Data Retention at the org level before onboarding external clients |
+
 ## What it deliberately does not do
 
 **It never executes client code.** No `npm install`, no `go build`, no running
@@ -52,6 +63,7 @@ Required in `.env`:
 | `PUBLIC_GRAFANA_URL` | same |
 | `ONBOARD_API_KEY` | shared secret for `POST`. Optional on a trusted LAN, **required** anywhere else, because a submitted job can carry a customer's repo token |
 | `ONBOARD_BUDGET_USD` | per-job ceiling, default `2.00` |
+| `ARTIFACT_TTL_MS` | how long job artifacts (patch, agent transcript) survive on disk; default 24h |
 | `ONBOARD_GITLAB_HOSTS` | comma-separated self-hosted GitLab hostnames. `gitlab.com`/`github.com` need no configuration; other hosts must be listed here or the caller must send `provider` |
 
 ## Cost and capacity

@@ -89,6 +89,13 @@ Constraints for this environment:
   summary that the client should run it after applying the change.
 - Change only what onboarding requires. No refactors, no formatting sweeps,
   no dependency upgrades beyond the observability library itself.
+- Do NOT create or edit .env, .env.local, or any secrets file. Those are
+  normally gitignored, so edits there would vanish from the patch entirely and
+  the client would receive code that silently sends telemetry nowhere. The
+  environment variables are reported back separately — your job is the code.
+- State the service name you settled on as the last line of your summary, in
+  exactly this form and nothing else on the line:
+      SERVICE_NAME_CHOSEN: <name>
 - If this repository has no service you can onboard — no Node or Go
   application, only docs, or an unsupported stack — then make NO changes at
   all and say so plainly in your summary. Reporting 'nothing to onboard' is a
@@ -96,8 +103,8 @@ Constraints for this environment:
   show progress; an empty result the client can trust is worth more than a
   plausible-looking one they cannot.
 
-Finish with a short summary: which files you changed, the service name you
-used, and anything the client must do by hand."
+Finish with a short summary: which files you changed and anything the client
+must do by hand, then the SERVICE_NAME_CHOSEN line."
 
 set +e
 claude -p "$PROMPT" \
@@ -131,6 +138,34 @@ fi
 git diff --cached > "$OUT/onboarding.patch"
 CHANGED="$(git diff --cached --name-only | jq -R . | jq -s .)"
 
+# --- required environment variables -------------------------------------------
+# Derived here rather than asked of the agent: this script seeded the endpoints
+# and was told the team, so the only unknown is the service name the agent
+# settled on. Computing the rest mechanically keeps the reported values from
+# drifting away from what the client was actually onboarded against.
+RESOLVED_SERVICE="$SERVICE_NAME"
+if [ -z "$RESOLVED_SERVICE" ]; then
+  RESOLVED_SERVICE="$(printf '%s' "$SUMMARY" | sed -nE 's/^[[:space:]]*SERVICE_NAME_CHOSEN:[[:space:]]*([A-Za-z0-9._-]+).*/\1/p' | tail -1)"
+fi
+[ -n "$RESOLVED_SERVICE" ] || RESOLVED_SERVICE="<your-service-name>"
+
+ENV_LINES="OTEL_SERVICE_NAME=$RESOLVED_SERVICE
+OTEL_EXPORTER_OTLP_ENDPOINT=$OTLP_ENDPOINT"
+if [ -n "$TEAM" ]; then
+  ENV_LINES="$ENV_LINES
+OTEL_RESOURCE_ATTRIBUTES=team=$TEAM"
+fi
+ENV_JSON="$(printf '%s' "$ENV_LINES" | jq -R . | jq -s .)"
+
+# --- what the reviewer should look at -----------------------------------------
+# Classified from the real diff, not from the agent's account of it, so an
+# over-claimed summary cannot hide a file. Files outside the shapes onboarding
+# is expected to touch are surfaced for review, never blocked: a legitimate
+# edit can live anywhere, and the human reviewing the patch is the judge.
+EXPECTED_RE='^(\.observability/|package\.json$|package-lock\.json$|go\.mod$|go\.sum$|.*/go\.(mod|sum)$|main\.go$|.*/main\.go$|src/index\.[a-z]+$|index\.[a-z]+$|Dockerfile$|.*/Dockerfile$|docker-compose\.ya?ml$)'
+FILES_EXPECTED="$(git diff --cached --name-only | grep -E "$EXPECTED_RE" | jq -R . | jq -s . 2>/dev/null || echo '[]')"
+FILES_REVIEW="$(git diff --cached --name-only | grep -vE "$EXPECTED_RE" | jq -R . | jq -s . 2>/dev/null || echo '[]')"
+
 PR_URL=""
 if [ "$MODE" = "pr" ]; then
   [ -n "${GIT_TOKEN:-}" ] || fail "MODE=pr requires GIT_TOKEN with write access"
@@ -148,6 +183,44 @@ actually arrive."
   git push -q origin "$BRANCH" >>"$OUT/clone.log" 2>&1 || fail "push failed — the token needs write access. See clone.log"
   git remote set-url origin "$REPO_URL"
 
+  # The request body is where a reviewer actually looks, so everything they
+  # need to decide goes here: the env vars they must set (which are NOT in the
+  # diff by design), anything touched outside the expected shapes, and the
+  # honest caveat that nothing was executed.
+  REVIEW_SECTION=""
+  if [ "$(printf '%s' "$FILES_REVIEW" | jq -r 'length')" -gt 0 ]; then
+    REVIEW_SECTION="
+
+### Worth a closer look
+
+These files are outside what onboarding normally touches. That does not make
+them wrong — it means they deserve a read before merging:
+
+$(printf '%s' "$FILES_REVIEW" | jq -r '.[] | "- `\(.)`"')"
+  fi
+
+  BODY="$SUMMARY
+
+### Set these environment variables
+
+They are **not** in this diff: they usually belong in \`.env\` or your
+deployment config, which are gitignored, so writing them here would have
+silently dropped them.
+
+\`\`\`bash
+$(printf '%s' "$ENV_LINES")
+\`\`\`
+
+Without \`OTEL_EXPORTER_OTLP_ENDPOINT\` the library defaults to
+\`http://localhost:4318\` and telemetry goes nowhere, with no error.
+$REVIEW_SECTION
+
+### Not verified from here
+
+The agent never ran this service — it only read and edited source. After
+merging, run the \`observability-onboard\` plugin's \`verify\` skill against the
+running app to confirm signals actually arrive."
+
   TITLE="Onboard onto the Digiform observability platform"
   TARGET="${BASE_BRANCH:-main}"
   HOST="$(printf '%s' "$REPO_URL" | sed -E 's#^https://([^/]+)/.*#\1#')"
@@ -163,14 +236,14 @@ actually arrive."
     API_RESP="$(curl -sS -X POST "https://$HOST/api/v4/projects/$ENC_PATH/merge_requests" \
       -H "PRIVATE-TOKEN: $GIT_TOKEN" \
       -H "Content-Type: application/json" \
-      -d "$(jq -n --arg t "$TITLE" --arg sb "$BRANCH" --arg tb "$TARGET" --arg d "$SUMMARY" \
+      -d "$(jq -n --arg t "$TITLE" --arg sb "$BRANCH" --arg tb "$TARGET" --arg d "$BODY" \
                   '{title:$t, source_branch:$sb, target_branch:$tb, description:$d}')")"
     PR_URL="$(printf '%s' "$API_RESP" | jq -r '.web_url // empty')"
   else
     API_RESP="$(curl -sS -X POST "https://api.github.com/repos/$PATH_SLUG/pulls" \
       -H "Authorization: Bearer $GIT_TOKEN" \
       -H "Accept: application/vnd.github+json" \
-      -d "$(jq -n --arg t "$TITLE" --arg h "$BRANCH" --arg b "$TARGET" --arg body "$SUMMARY" \
+      -d "$(jq -n --arg t "$TITLE" --arg h "$BRANCH" --arg b "$TARGET" --arg body "$BODY" \
                   '{title:$t, head:$h, base:$b, body:$body}')")"
     PR_URL="$(printf '%s' "$API_RESP" | jq -r '.html_url // empty')"
   fi
@@ -184,7 +257,11 @@ fi
 
 jq -n --arg status succeeded --arg base "$BASE_SHA" --arg summary "$SUMMARY" \
       --arg cost "$COST" --arg pr "$PR_URL" --argjson files "$CHANGED" \
+      --argjson env "$ENV_JSON" --argjson expected "$FILES_EXPECTED" \
+      --argjson review "$FILES_REVIEW" --arg svc "$RESOLVED_SERVICE" \
   '{status:$status, base_sha:$base, files_changed:$files, summary:$summary,
+    service_name:$svc, required_env:$env,
+    files_expected:$expected, files_for_review:$review,
     cost_usd:(($cost|tonumber?) // null),
     pull_request:(if $pr == "" then null else $pr end)}' > "$OUT/result.json"
 

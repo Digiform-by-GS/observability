@@ -5,6 +5,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JobStore, type JobRequest, type DeliveryMode } from './jobs.js';
 import { parseRepoUrl, requestNoun } from './providers.js';
+import { startReaper } from './reaper.js';
 import { runJob, artifactDir, type RunnerConfig } from './runner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -156,8 +157,14 @@ app.get('/api/jobs/:id/patch', async (req, res) => {
 
 app.use(express.static(join(__dirname, 'public')));
 
+// Artifacts are client source code; hold them only as long as a download
+// plausibly needs. Default 24h, overridable for a client who wants less.
+const ARTIFACT_TTL_MS = Number(process.env.ARTIFACT_TTL_MS ?? 24 * 60 * 60 * 1000);
+startReaper(cfg.artifactRoot, ARTIFACT_TTL_MS, 60 * 60 * 1000);
+
 const port = Number(process.env.PORT ?? 8100);
 app.listen(port, () => {
   console.log(`[onboarding-agent] listening on :${port}`);
   console.log(`[onboarding-agent] runner=${cfg.image} budget=$${cfg.budgetUsd} auth=${API_KEY ? 'on' : 'OFF'}`);
+  console.log(`[onboarding-agent] artifact TTL=${Math.round(ARTIFACT_TTL_MS / 3600000)}h`);
 });
