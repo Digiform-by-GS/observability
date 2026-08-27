@@ -14,6 +14,9 @@ export interface RunnerConfig {
   timeoutMs: number;
 }
 
+// Named docker volume holding the shared Go module cache; created on first use.
+const GOMODCACHE_VOLUME = process.env.GOMODCACHE_VOLUME ?? 'onboarding-gomodcache';
+
 // Must match the `runner` user created in runner/Dockerfile.
 const RUNNER_UID = 10001;
 const RUNNER_GID = 10001;
@@ -94,6 +97,16 @@ export async function runJob(
     // work tree dir'. exec is needed because git invokes helper binaries.
     '--tmpfs', `/work:rw,exec,size=512m,uid=${RUNNER_UID},gid=${RUNNER_GID}`,
     '-v', `${out}:/out`,
+    // Persistent Go module cache, shared across jobs. Without it every Go job
+    // re-downloads the client's entire dependency tree into a throwaway
+    // container — the first real repo, with the GCP client libraries, blew the
+    // 15 minute timeout doing exactly that.
+    //
+    // Sharing it between clients is safe: the cache holds public modules only,
+    // each verified against sum.golang.org, and jobs run one at a time so
+    // there is no concurrent-write race. It holds nothing client-specific —
+    // the clone itself lives in the tmpfs and dies with the container.
+    '-v', `${GOMODCACHE_VOLUME}:/home/runner/go/pkg/mod`,
     cfg.image,
   ];
 
