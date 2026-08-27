@@ -25,7 +25,11 @@ services:
       RUNNER_IMAGE: ${RUNNER_IMAGE:-digiform/onboarding-runner:dev}
       # Per-job ceiling. A runaway agent costs money, not just time.
       BUDGET_USD: ${ONBOARD_BUDGET_USD:-2.00}
-      JOB_TIMEOUT_MS: ${ONBOARD_TIMEOUT_MS:-900000}
+      # 20 minutes. A Go repo with a large dependency tree spends real time in
+      # `go mod download` on a cold cache; 15 was not enough for the first one
+      # tried. The shared module cache makes repeat jobs far faster, but a
+      # first-of-its-kind tree still has to be fetched once.
+      JOB_TIMEOUT_MS: ${ONBOARD_TIMEOUT_MS:-1200000}
       # Submitted jobs can carry a customer's repo token. Set this on anything
       # broader than a trusted LAN.
       API_KEY: ${ONBOARD_API_KEY:-}

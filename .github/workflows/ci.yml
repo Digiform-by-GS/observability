@@ -119,6 +119,26 @@ jobs:
           done
           exit $fail
 
+      # The runner passes --plugin-dir to the agent. Pointing it at the PARENT
+      # of the plugin loads nothing and raises no error, so the agent runs with
+      # no skills at all - which burned three onboarding attempts before a probe
+      # asked the agent what it could see and it answered NONE.
+      - name: runner points --plugin-dir at an actual plugin
+        run: |
+          # Anchor to the flag as used, not as mentioned: the comment above it
+          # in run-job.sh contains the same string.
+          dir=$(grep -oE '^[[:space:]]*--plugin-dir[[:space:]]+[^[:space:]]+'                   services/onboarding-agent/runner/run-job.sh | awk '{print $2}')
+          echo "run-job.sh uses: $dir"
+          if [ "$dir" != "/opt/observability-plugin/plugin" ]; then
+            echo "unexpected --plugin-dir: $dir"; exit 1
+          fi
+          # That container path is populated from ./plugin by the Dockerfile,
+          # so the manifest must exist here in the repo.
+          if [ ! -f plugin/.claude-plugin/plugin.json ]; then
+            echo "plugin/.claude-plugin/plugin.json missing"; exit 1
+          fi
+          echo "  plugin manifest present"
+
       # Every shell script in the repo, not just the plugin's. Both of these
       # scripts report PASS/FAIL on whether telemetry is working, so a silent
       # logic bug in one is worse than a broken build: it reports success that

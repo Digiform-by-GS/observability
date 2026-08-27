@@ -14,6 +14,9 @@ export interface RunnerConfig {
   timeoutMs: number;
 }
 
+// Named docker volume holding the shared Go module cache; created on first use.
+const GOMODCACHE_VOLUME = process.env.GOMODCACHE_VOLUME ?? 'onboarding-gomodcache';
+
 // Must match the `runner` user created in runner/Dockerfile.
 const RUNNER_UID = 10001;
 const RUNNER_GID = 10001;
@@ -94,6 +97,16 @@ export async function runJob(
     // work tree dir'. exec is needed because git invokes helper binaries.
     '--tmpfs', `/work:rw,exec,size=512m,uid=${RUNNER_UID},gid=${RUNNER_GID}`,
     '-v', `${out}:/out`,
+    // Persistent Go module cache, shared across jobs. Without it every Go job
+    // re-downloads the client's entire dependency tree into a throwaway
+    // container — the first real repo, with the GCP client libraries, blew the
+    // 15 minute timeout doing exactly that.
+    //
+    // Sharing it between clients is safe: the cache holds public modules only,
+    // each verified against sum.golang.org, and jobs run one at a time so
+    // there is no concurrent-write race. It holds nothing client-specific —
+    // the clone itself lives in the tmpfs and dies with the container.
+    '-v', `${GOMODCACHE_VOLUME}:/home/runner/go/pkg/mod`,
     cfg.image,
   ];
 
@@ -106,6 +119,7 @@ export async function runJob(
     });
     let stderr = '';
     let settled = false;
+    let timedOut = false;
 
     const finish = (o: RunOutcome) => {
       if (!settled) {
@@ -116,7 +130,14 @@ export async function runJob(
 
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
-      finish({ ok: false, error: `job exceeded ${Math.round(cfg.timeoutMs / 1000)}s and was killed` });
+      // Do NOT resolve here. A job that finished in the same moment the timer
+      // fired has already written result.json and the patch, and reporting it
+      // as failed throws away completed work - which happened on a real repo:
+      // clean compile, valid patch on disk, reported as "exceeded 1200s".
+      // Killing the container makes 'close' fire, and that handler treats
+      // result.json as the authority; the timedOut flag only supplies the
+      // error message when there is genuinely no result.
+      timedOut = true;
     }, cfg.timeoutMs);
 
     child.stderr.on('data', (d: Buffer) => {
@@ -146,7 +167,9 @@ export async function runJob(
       } catch {
         finish({
           ok: false,
-          error: `the runner produced no result. ${stderr.trim().slice(-500) || 'no stderr'}`,
+          error: timedOut
+            ? `job exceeded ${Math.round(cfg.timeoutMs / 1000)}s and was killed before producing a result`
+            : `the runner produced no result. ${stderr.trim().slice(-500) || 'no stderr'}`,
         });
       }
     });

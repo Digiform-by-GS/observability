@@ -83,8 +83,19 @@ Context for this run:
 Constraints for this environment:
 - You are running unattended. Never ask questions; make the call the skill
   implies and record it in your summary.
-- Do NOT run the application, npm install, go build, or any package manager.
-  This is a source transformation only. Edits must be correct by inspection.
+- Do NOT run the application, and do NOT run npm/yarn/pnpm install. Those
+  execute arbitrary postinstall scripts from the client's dependency tree,
+  which is remote code execution on this host.
+- You MAY run go commands, and for a Go project you MUST. Go bakes dependency
+  resolution into the tool: adding a module means downloading it, hashing it,
+  and writing the checksum into go.sum, and Go refuses to build without those
+  entries. Editing go.mod alone produces a patch that cannot compile. Run
+  go get for each module you add, then go mod tidy, and confirm go.sum ends up
+  in the diff. Unlike npm, these commands execute nothing from the dependency
+  tree.
+- go build ./... is allowed and encouraged as a correctness check: it compiles
+  the code but does not run the service. Do not run go test (test code is the
+  client's own and does execute), and never start the application.
 - Do NOT run the verify skill; there is no reachable app here. Say in your
   summary that the client should run it after applying the change.
 - Change only what onboarding requires. No refactors, no formatting sweeps,
@@ -100,10 +111,16 @@ Finish with a short summary: which files you changed, the service name you
 used, and anything the client must do by hand."
 
 set +e
+# --plugin-dir must point at the PLUGIN directory - the one containing
+# .claude-plugin/plugin.json - NOT its parent. The parent holds the
+# marketplace manifest, and pointing there loads nothing, silently: the
+# agent runs with no skills and no error is raised. Three onboarding
+# attempts were burned on that before a probe asked the agent which
+# skills it could see and it answered NONE.
 claude -p "$PROMPT" \
-  --plugin-dir /opt/observability-plugin \
+  --plugin-dir /opt/observability-plugin/plugin \
   --permission-mode bypassPermissions \
-  --allowedTools "Read Edit Write Glob Grep" \
+  --allowedTools "Read Edit Write Glob Grep Bash(go:*)" \
   --max-budget-usd "$BUDGET_USD" \
   --output-format json \
   > "$OUT/agent.json" 2>"$OUT/agent.log"

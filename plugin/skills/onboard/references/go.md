@@ -11,7 +11,20 @@ one is installed elsewhere.
 
 ```bash
 go get github.com/Digiform-by-GS/observability/packages/observability-go
+go mod tidy
 ```
+
+**Use this module. Do not hand-roll an OpenTelemetry setup.** If a repository
+already has otel packages in its dependency tree — GCP client libraries pull
+them in transitively, which is common — it is tempting to write your own
+exporter and provider wiring from what is already there. Do not. That path
+skips the global propagator (Go's default is a silent no-op, so nothing joins
+across services), the slog bridge that correlates logs, the bounded shutdown,
+and the error handler that makes a dead collector visible. Add the module.
+
+`go mod tidy` is not optional: Go writes dependency checksums into go.sum and
+refuses to build without them, so a go.mod edit alone yields a patch that
+cannot compile.
 
 ## Wire it in — `main()`
 
@@ -78,6 +91,14 @@ r.Use(otelgin.Middleware("orders"))
 e := echo.New()
 e.Use(otelecho.Middleware("orders"))
 // import "go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
+
+// gorilla/mux — needs the formatter spelled out; see below
+r := mux.NewRouter()
+r.Use(otelmux.Middleware("orders",
+    otelmux.WithSpanNameFormatter(func(route string, req *http.Request) string {
+        return req.Method + " " + route
+    })))
+// import "go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 ```
 
 **Never bare `otelhttp.NewHandler` on a server.** Framework middleware names
@@ -98,7 +119,16 @@ never reaches the metric labels. With the option the name is `GET /orders`,
 matching OpenTelemetry's `{method} {route}` convention and the Node stack.
 
 otelecho already does this by default (its formatter is `method + " " + path`),
-so no extra option there. For any framework not listed, the acceptance
+so no extra option there.
+
+**otelmux is the worst of the three and has no convenience option at all.** Its
+default is `func(routeName string, _ *http.Request) string { return routeName }`
+— the route with no method — and unlike otelchi there is no
+`WithRequestMethodInSpanName`. You must pass `WithSpanNameFormatter` yourself,
+exactly as shown above. Wrapping a gorilla/mux router in bare
+`otelhttp.NewHandler(router, "my-service")` instead is the worst outcome
+available: every request in the service collapses to the single span name
+"my-service", so the dashboards show one green line that means nothing. For any framework not listed, the acceptance
 criterion is the same: a server span must read `GET /orders/{id}` — not a bare
 path (`/orders/{id}`, methods collapsed) and not a concrete URL
 (`GET /orders/42`, unbounded). Verify it with the verify skill before calling
