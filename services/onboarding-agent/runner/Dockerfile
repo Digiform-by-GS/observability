@@ -16,6 +16,26 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates curl jq \
  && rm -rf /var/lib/apt/lists/*
 
+# Go toolchain. Required, not optional: unlike Node — where adding a dependency
+# is a text edit to package.json and npm resolves it later — Go bakes resolution
+# into the tool. Adding a module means downloading it, hashing it, and writing
+# the checksum to go.sum, and Go refuses to build without those entries. Without
+# a toolchain here the agent cannot add a Go dependency at all; the first real Go
+# repo it saw, it worked around the gap by hand-rolling instrumentation from
+# packages already in the tree.
+#
+# This is a much smaller grant than it first appears. `npm install` executes
+# arbitrary postinstall scripts; `go mod tidy` and `go get` execute nothing —
+# they download, verify checksums, and read source to see what is imported.
+# Checksum verification against sum.golang.org stays on.
+ENV GO_VERSION=1.26.5
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+      | tar -C /usr/local -xz \
+ && /usr/local/go/bin/go version
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    GOTOOLCHAIN=auto \
+    GOFLAGS=-mod=mod
+
 # The agent itself.
 RUN npm install -g @anthropic-ai/claude-code@2.1.76
 
@@ -29,7 +49,12 @@ COPY services/onboarding-agent/runner/run-job.sh /usr/local/bin/run-job
 RUN chmod +x /usr/local/bin/run-job
 
 # Unprivileged: the job has no reason to be root, and the clone is untrusted.
-RUN useradd -m -u 10001 runner && mkdir -p /work /out && chown runner:runner /work /out
+RUN useradd -m -u 10001 runner \
+ && mkdir -p /work /out /home/runner/go /home/runner/.cache \
+ && chown -R runner:runner /work /out /home/runner
+ENV GOPATH=/home/runner/go \
+    GOCACHE=/home/runner/.cache/go-build \
+    GOMODCACHE=/home/runner/go/pkg/mod
 USER runner
 WORKDIR /work
 
