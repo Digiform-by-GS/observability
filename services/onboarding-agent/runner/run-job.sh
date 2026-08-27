@@ -111,8 +111,14 @@ Finish with a short summary: which files you changed, the service name you
 used, and anything the client must do by hand."
 
 set +e
+# --plugin-dir must point at the PLUGIN directory - the one containing
+# .claude-plugin/plugin.json - NOT its parent. The parent holds the
+# marketplace manifest, and pointing there loads nothing, silently: the
+# agent runs with no skills and no error is raised. Three onboarding
+# attempts were burned on that before a probe asked the agent which
+# skills it could see and it answered NONE.
 claude -p "$PROMPT" \
-  --plugin-dir /opt/observability-plugin \
+  --plugin-dir /opt/observability-plugin/plugin \
   --permission-mode bypassPermissions \
   --allowedTools "Read Edit Write Glob Grep Bash(go:*)" \
   --max-budget-usd "$BUDGET_USD" \

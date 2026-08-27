@@ -119,6 +119,7 @@ export async function runJob(
     });
     let stderr = '';
     let settled = false;
+    let timedOut = false;
 
     const finish = (o: RunOutcome) => {
       if (!settled) {
@@ -129,7 +130,14 @@ export async function runJob(
 
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
-      finish({ ok: false, error: `job exceeded ${Math.round(cfg.timeoutMs / 1000)}s and was killed` });
+      // Do NOT resolve here. A job that finished in the same moment the timer
+      // fired has already written result.json and the patch, and reporting it
+      // as failed throws away completed work - which happened on a real repo:
+      // clean compile, valid patch on disk, reported as "exceeded 1200s".
+      // Killing the container makes 'close' fire, and that handler treats
+      // result.json as the authority; the timedOut flag only supplies the
+      // error message when there is genuinely no result.
+      timedOut = true;
     }, cfg.timeoutMs);
 
     child.stderr.on('data', (d: Buffer) => {
@@ -159,7 +167,9 @@ export async function runJob(
       } catch {
         finish({
           ok: false,
-          error: `the runner produced no result. ${stderr.trim().slice(-500) || 'no stderr'}`,
+          error: timedOut
+            ? `job exceeded ${Math.round(cfg.timeoutMs / 1000)}s and was killed before producing a result`
+            : `the runner produced no result. ${stderr.trim().slice(-500) || 'no stderr'}`,
         });
       }
     });
