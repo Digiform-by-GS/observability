@@ -49,8 +49,14 @@ COPY services/onboarding-agent/runner/run-job.sh /usr/local/bin/run-job
 RUN chmod +x /usr/local/bin/run-job
 
 # Unprivileged: the job has no reason to be root, and the clone is untrusted.
+#
+# /home/runner/go/pkg/mod is created here, not merely mounted at runtime:
+# docker creates a named-volume mount point as root:root when the path is
+# absent from the image, because there is no ownership for it to inherit, and
+# the non-root runner then cannot write the module cache. Same trap as the
+# artifact bind mount and the /work tmpfs, in a third disguise.
 RUN useradd -m -u 10001 runner \
- && mkdir -p /work /out /home/runner/go /home/runner/.cache \
+ && mkdir -p /work /out /home/runner/go/pkg/mod /home/runner/.cache \
  && chown -R runner:runner /work /out /home/runner
 ENV GOPATH=/home/runner/go \
     GOCACHE=/home/runner/.cache/go-build \
