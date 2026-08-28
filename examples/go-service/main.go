@@ -22,8 +22,8 @@ import (
 	"time"
 
 	observability "github.com/Digiform-by-GS/observability/packages/observability-go"
+	"github.com/Digiform-by-GS/observability/packages/observability-go/httpx/chix"
 	"github.com/go-chi/chi/v5"
-	"github.com/riandyrn/otelchi"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -149,10 +149,11 @@ func newServer(log *slog.Logger, d *deps, m *messaging) (http.Handler, error) {
 
 	r := chi.NewRouter()
 
-	// otelchi, not bare otelhttp: chi exposes the route *pattern*, so spans are
+	// chix, not bare otelhttp: chi exposes the route *pattern*, so spans are
 	// named "GET /orders/{id}" rather than "GET /orders/8fe2...". Raw paths would
 	// make span_name unbounded and blow up span-metrics cardinality in Mimir.
-	r.Use(otelchi.Middleware(serviceName, otelchi.WithChiRoutes(r), otelchi.WithRequestMethodInSpanName(true)))
+	// The router is passed in because otelchi needs it to resolve templates.
+	r.Use(chix.Middleware(serviceName, r))
 
 	r.Get("/healthy", func(w http.ResponseWriter, req *http.Request) {
 		requests.Add(req.Context(), 1, metric.WithAttributes(attribute.String("route", "/healthy")))

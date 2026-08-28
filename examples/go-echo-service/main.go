@@ -20,8 +20,8 @@ import (
 	"time"
 
 	observability "github.com/Digiform-by-GS/observability/packages/observability-go"
+	"github.com/Digiform-by-GS/observability/packages/observability-go/httpx/echox"
 	"github.com/labstack/echo/v4"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -95,12 +95,13 @@ func newEcho(log *slog.Logger) (*echo.Echo, error) {
 	e.HideBanner = true
 	e.HidePort = true
 
-	// The one line that differs from the chi example. otelecho names spans after
-	// the route *template* (e.g. "GET /orders/:id"), NOT the concrete path
-	// ("GET /orders/42"). Raw paths would make span_name unbounded and inflate
-	// span-metrics cardinality in Mimir — the same reason go-service uses
-	// otelchi rather than bare otelhttp.
-	e.Use(otelecho.Middleware(serviceName))
+	// The one line that differs from the chi example, and it differs only in
+	// which httpx package it names. Spans are named after the route *template*
+	// ("GET /orders/:id"), NOT the concrete path ("GET /orders/42"), which would
+	// make span_name unbounded and inflate span-metrics cardinality in Mimir.
+	// echox needs no options because otelecho's default is already correct;
+	// chix and muxx do, which is precisely why this is a module and not a note.
+	e.Use(echox.Middleware(serviceName))
 
 	e.GET("/healthy", func(c echo.Context) error {
 		requests.Add(c.Request().Context(), 1, metric.WithAttributes(attribute.String("route", "/healthy")))
