@@ -10,9 +10,20 @@ one is installed elsewhere.
 ## Install
 
 ```bash
-go get github.com/Digiform-by-GS/observability/packages/observability-go
+go get github.com/Digiform-by-GS/observability/packages/observability-go@v0.1.1
+go get github.com/Digiform-by-GS/observability/packages/observability-go/httpx@v0.1.0   # if it serves HTTP
 go mod tidy
 ```
+
+Versions from [compat.json](compat.json) — do not substitute your own. `httpx`
+is a **separate module**, so `go get` on the parent does not bring it.
+
+**Expect an unrequested `go.mod` diff.** Go resolves every dependency to the
+maximum version anyone in the graph requires, so adding this module pulls
+`go.opentelemetry.io/otel` up to v1.44.0 across the client's entire build —
+including code unrelated to observability. That is correct, not a mistake, but
+say so in the PR body rather than letting a reviewer discover it. Check with
+`go list -m go.opentelemetry.io/otel`.
 
 **Use this module. Do not hand-roll an OpenTelemetry setup.** If a repository
 already has otel packages in its dependency tree — GCP client libraries pull
@@ -76,74 +87,121 @@ ever joins across services. If the user's code already calls
 
 ## Router middleware — the one line that keeps the platform healthy
 
+Use the `httpx` module. It is a separate module from `observability-go`, so add
+it explicitly (version in [compat.json](compat.json)):
+
+```bash
+go get github.com/Digiform-by-GS/observability/packages/observability-go/httpx
+```
+
 ```go
-// chi
+// chi — pass the router itself; otelchi needs it to resolve route templates
 r := chi.NewRouter()
-r.Use(otelchi.Middleware("orders", otelchi.WithChiRoutes(r), otelchi.WithRequestMethodInSpanName(true)))
-// import "github.com/riandyrn/otelchi"
+r.Use(chix.Middleware("orders", r))
 
 // gin
 r := gin.New()
-r.Use(otelgin.Middleware("orders"))
-// import "go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+r.Use(ginx.Middleware("orders"))
 
 // echo
 e := echo.New()
-e.Use(otelecho.Middleware("orders"))
-// import "go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
+e.Use(echox.Middleware("orders"))
 
-// gorilla/mux — needs the formatter spelled out; see below
+// gorilla/mux
 r := mux.NewRouter()
-r.Use(otelmux.Middleware("orders",
-    otelmux.WithSpanNameFormatter(func(route string, req *http.Request) string {
-        return req.Method + " " + route
-    })))
-// import "go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
+r.Use(muxx.Middleware("orders"))
 ```
 
-**Never bare `otelhttp.NewHandler` on a server.** Framework middleware names
-spans after the route *template* (`GET /orders/{id}`) — bounded. Bare
-`otelhttp` uses the concrete path (`GET /orders/42`) — one new metric series
-set per distinct URL, which grows until the shared platform starts rejecting
-metric writes for everyone. For frameworks not listed, find their OTel contrib
-middleware; the acceptance criterion is route-template span names. Last resort:
-`otelhttp` with an explicit span-name formatter that returns the route pattern.
-
-**`WithRequestMethodInSpanName(true)` is not optional on chi.** Without it
-otelchi names the span after the route alone — `/orders` — so `GET /orders`
-and `POST /orders` become the *same* span name and share one set of
-rate/error/latency series. You cannot tell a read from a write on the
-dashboard, and there is no fallback: `http.method` is recorded as a span
-attribute but is not one of the platform's span-metrics dimensions, so it
-never reaches the metric labels. With the option the name is `GET /orders`,
-matching OpenTelemetry's `{method} {route}` convention and the Node stack.
-
-otelecho already does this by default (its formatter is `method + " " + path`),
-so no extra option there.
-
-**otelmux is the worst of the three and has no convenience option at all.** Its
-default is `func(routeName string, _ *http.Request) string { return routeName }`
-— the route with no method — and unlike otelchi there is no
-`WithRequestMethodInSpanName`. You must pass `WithSpanNameFormatter` yourself,
-exactly as shown above. Wrapping a gorilla/mux router in bare
-`otelhttp.NewHandler(router, "my-service")` instead is the worst outcome
-available: every request in the service collapses to the single span name
-"my-service", so the dashboards show one green line that means nothing. For any framework not listed, the acceptance
-criterion is the same: a server span must read `GET /orders/{id}` — not a bare
-path (`/orders/{id}`, methods collapsed) and not a concrete URL
-(`GET /orders/42`, unbounded). Verify it with the verify skill before calling
-the service onboarded.
-
-**Outbound HTTP clients** are the other half of propagation — the wrapped
-transport is what injects `traceparent`:
+Import paths are `.../observability-go/httpx/chix`, `/ginx`, `/echox`, `/muxx`.
+Each takes its framework's option type as a variadic tail, so filters and
+tracer providers still get through:
 
 ```go
-client := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-// import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+r.Use(muxx.Middleware("orders", otelmux.WithFilter(skipWebsockets)))
 ```
 
-(`otelhttp` on the *client* side is correct and safe — the cardinality trap is
-server-side span naming only.)
+**Why not wire the upstream middleware directly.** Span names become metric
+label values in Tempo's span-metrics generator, and each distinct name
+multiplies by the latency histogram's bucket count. A naming mistake therefore
+does not degrade the offending service — it fills Mimir, and Mimir then rejects
+metric writes for **every tenant on the platform**. The correct incantation
+differs per router (otelchi needs two options, otelmux needs a hand-written
+formatter and has no option at all, otelgin and otelecho are already right), and
+`httpx` encodes all four with tests. Getting it right by hand is possible;
+getting it right every time, in every repo, is what fails.
+
+**The acceptance criterion, for any framework:** a server span must read
+`GET /orders/{id}`. Two ways to fail it:
+- **Unbounded** — `GET /orders/42`. The concrete path reaches the name, so every
+  distinct URL mints a new series set. This is what bare `otelhttp.NewHandler`
+  does on a server.
+- **Collapsed** — `/orders`, method dropped. `GET` and `POST` then share one set
+  of rate/error/latency series and a read is indistinguishable from a write.
+  `http.method` is a span attribute but **not** a span-metrics dimension here,
+  so the distinction cannot be recovered afterwards.
+
+**For a framework `httpx` does not cover**, find its contrib middleware and check
+that criterion. Last resort is `otelhttp` with an explicit span-name formatter
+returning the route pattern — never bare `otelhttp.NewHandler(router, "svc")`,
+which is the worst outcome available: every request in the service collapses to
+the single span name "svc", and the dashboards show one green line that means
+nothing. Verify with the verify skill before calling the service onboarded.
+
+## Three things the middleware will not do for you
+
+These were all found in one real Go service. Each is silent — nothing errors,
+and the dashboards look plausible.
+
+**WebSocket routes produce hours-long spans.** The middleware wraps the upgrade
+handler, so the span stays open for the life of the connection. One chat session
+becomes a multi-hour server span that lands in the same latency histogram as
+your HTTP routes and destroys p95. Exclude them:
+
+```go
+r.Use(muxx.Middleware("orders", otelmux.WithFilter(func(req *http.Request) bool {
+    return !websocket.IsWebSocketUpgrade(req)  // false = not traced
+})))
+```
+
+**Scheduled jobs are invisible.** A `gocron`/`cron`/ticker job has no inbound
+request, so no middleware runs, so there is no span and no context — and
+`InfoContext(ctx, ...)` on a background context produces an uncorrelated log.
+The job simply does not exist in the platform. Start a root span per run:
+
+```go
+tracer := observability.Tracer("jobs")
+scheduler.NewJob(..., gocron.NewTask(func() {
+    ctx, span := tracer.Start(context.Background(), "reconcile-invoices")
+    defer span.End()
+    if err := reconcile(ctx); err != nil {   // pass ctx down, always
+        span.RecordError(err)
+        span.SetStatus(codes.Error, err.Error())
+    }
+}))
+```
+
+Name the span after the job, not the run — a timestamp or run id in the span
+name is the unbounded-cardinality bug in a new disguise.
+
+**Outbound clients that build their own transport propagate nothing.** Any SDK
+constructing its own `http.Client` — `gocloak`, `resty`, most vendor SDKs —
+sends no `traceparent`, so the trace ends at that hop and the downstream service
+starts a fresh unrelated trace. Nothing errors; the chain is just quietly
+severed. Wrap the transport wherever the client is built:
+
+```go
+// resty
+client := resty.New()
+client.SetTransport(otelhttp.NewTransport(http.DefaultTransport))
+
+// gocloak and similar: reach for the SetRestyClient/WithClient escape hatch
+gc := gocloak.NewClient(url)
+gc.RestyClient().SetTransport(otelhttp.NewTransport(http.DefaultTransport))
+```
+
+When onboarding, grep for `http.Client{`, `resty.New`, and SDK constructors, and
+report any you could not wrap — an unwrapped client is a known gap, not a
+finished onboarding.
 
 ## Logging — the rule that has no compiler error
 

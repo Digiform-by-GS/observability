@@ -1,6 +1,5 @@
 {
   "_readme": "Version pins for everything the onboard skill installs. READ THIS BEFORE CHOOSING ANY VERSION. Never infer a version from the client's existing dependencies, from a registry's 'latest', or from memory: both known onboarding defects came from guessing. CI asserts these values match the packages in this repo.",
-
   "node": {
     "package": "@digiform-by-gs/observability",
     "version": "0.1.2",
@@ -13,7 +12,6 @@
       "Version 0.1.2 or later is required: earlier versions do not register the ESM loader hook, so express/fastify/pg load unpatched and every server span is named after the bare method."
     ]
   },
-
   "go": {
     "module": "github.com/Digiform-by-GS/observability/packages/observability-go",
     "version": "v0.1.1",
@@ -26,7 +24,6 @@
       "go mod tidy is mandatory: Go refuses to build without the go.sum checksums, so a go.mod edit alone yields a patch that cannot compile."
     ]
   },
-
   "goRouters": {
     "_readme": "Router middleware helpers. Prefer these over wiring the upstream otel* middleware by hand: correct span naming is baked in, and getting it wrong fills Mimir and gets writes rejected for every tenant on the platform.",
     "module": "github.com/Digiform-by-GS/observability/packages/observability-go/httpx",
@@ -42,15 +39,19 @@
       "otelchi": "v0.12.3",
       "otelgin": "v0.69.0",
       "otelecho": "v0.69.0",
-      "otelmux": "v0.69.0",
-      "otelhttp": "v0.69.0"
+      "otelmux": "v0.69.0"
     },
     "notes": [
-      "opentelemetry-go-contrib is pinned to the v0.69.0 line because that is the release series built against otel v1.44.0, which is what observability-go requires. Do not bump one without the other.",
-      "For a framework with no httpx package, find its contrib middleware and verify the span name reads 'GET /orders/{id}'. Never bare otelhttp.NewHandler on a server."
-    ]
+      "opentelemetry-go-contrib is pinned to the v0.69.0 line because that is the release series built against otel v1.44.0, which observability-go requires. Newer contrib pulls otel forward, and Go resolves to the maximum in the graph, so bumping one silently raises the other. Move them together or not at all.",
+      "Importing one router package resolves only that router - module-graph pruning means a muxx consumer does not pull chi, gin, or echo.",
+      "For a framework with no httpx package, find its contrib middleware and verify the span name reads 'GET /orders/{id}'. Never bare otelhttp.NewHandler on a server: it names every request in the service after the service itself."
+    ],
+    "clientTransport": {
+      "package": "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp",
+      "version": "v0.69.0",
+      "note": "Not part of httpx - add it directly. otelhttp.NewTransport on an http.Client is what injects traceparent on outbound calls, and is correct there; the cardinality trap is server-side naming only. An SDK that builds its own transport without wrapping it propagates nothing and the trace ends silently at that hop."
+    }
   },
-
   "nextjs": {
     "package": "@vercel/otel",
     "version": "^2.1.3",
@@ -64,7 +65,6 @@
       "Server logs are NOT correlated. Say so explicitly rather than implying full coverage."
     ]
   },
-
   "lockfiles": {
     "_readme": "A dependency change without its lockfile is a broken patch, not an incomplete one. Both are non-negotiable.",
     "node": "After editing package.json run: npm install --package-lock-only --ignore-scripts. Include package-lock.json in the patch. Verify with npm ci --dry-run - many production Dockerfiles run npm ci, which fails outright when the two files disagree.",

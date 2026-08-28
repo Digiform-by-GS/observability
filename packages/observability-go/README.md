@@ -15,7 +15,7 @@ between the Go, Node, and Next.js stacks configures all three identically.
 | Redis helper | `redisotel` / `go-redis` v9.21.0 | `redisx` subpackage. |
 | SQL helper | `XSAM/otelsql` v0.43.0 | `sqlx` subpackage. |
 | RabbitMQ helper | `amqp091-go` v1.13.0 | `amqp` subpackage. |
-| Router middleware | `otelchi` v0.12.3, `contrib` v0.69.0 | Separate `httpx` module — not a dependency of this one. |
+| Router middleware | `otelchi` v0.12.3, `contrib` v0.69.0 | The separate [`httpx`](httpx/) module — not a dependency of this one, so add it explicitly. |
 
 ### Installing this raises your OpenTelemetry version
 

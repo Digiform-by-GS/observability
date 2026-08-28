@@ -117,6 +117,57 @@ check(
     "packages/observability-go/README.md must explain that installing it raises OTel graph-wide",
 )
 
+# --- Go router helpers (httpx) ----------------------------------------------
+# Pinned separately from the parent module and easy to drift: contrib releases
+# every instrumentation together, so a routine `go get -u` in httpx would pull
+# otel past v1.44 and, via Go's max-version selection, silently raise it for any
+# service that also uses observability-go.
+httpx_mod = read("packages/observability-go/httpx/go.mod")
+routers = compat["goRouters"]
+
+httpx_module_path = re.search(r"^module (\S+)", httpx_mod, re.M).group(1)
+check(
+    routers["module"] == httpx_module_path,
+    f"{COMPAT_PATH} goRouters.module is {routers['module']!r} but "
+    f"httpx/go.mod declares {httpx_module_path!r}",
+)
+
+for name, pinned in routers["wraps"].items():
+    found = re.search(rf"^	\S*{re.escape(name)} (v[\d.]+)$", httpx_mod, re.M)
+    check(found is not None, f"httpx/go.mod does not require {name} at all")
+    if found:
+        check(
+            found.group(1) == pinned,
+            f"{COMPAT_PATH} goRouters.wraps[{name!r}] is {pinned!r} but "
+            f"httpx/go.mod requires {found.group(1)}",
+        )
+
+# The pin exists to hold OTel at the parent module's version. Assert the outcome,
+# not just the inputs - this is the check that actually catches a bad bump.
+httpx_sdk = re.search(r"go\.opentelemetry\.io/otel/sdk (v[\d.]+)", httpx_mod)
+check(
+    httpx_sdk is not None and httpx_sdk.group(1) == otel_version,
+    f"httpx resolves go.opentelemetry.io/otel/sdk to "
+    f"{httpx_sdk.group(1) if httpx_sdk else 'nothing'}, but observability-go pins otel "
+    f"to {otel_version}. A service using both gets the maximum of the two.",
+)
+
+check(
+    (ROOT / "packages/observability-go/httpx/go.sum").exists(),
+    "packages/observability-go/httpx/go.sum is missing - Go refuses to build without it",
+)
+
+httpx_readme = read("packages/observability-go/httpx/README.md")
+for router in ("chix", "ginx", "echox", "muxx"):
+    check(
+        router in httpx_readme,
+        f"httpx/README.md does not document the {router} package",
+    )
+    check(
+        (ROOT / f"packages/observability-go/httpx/{router}/{router}_test.go").exists(),
+        f"httpx/{router} has no span-name test - the naming guarantee is the whole product",
+    )
+
 # --- Next.js pin ------------------------------------------------------------
 # No package of ours to diff against, so assert the facts that made the frontend
 # onboarding wrong: the 2.x floor, and that the logs gap is stated rather than implied.

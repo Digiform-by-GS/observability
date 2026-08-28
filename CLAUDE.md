@@ -116,9 +116,20 @@ receives `ctx` directly — but it has two traps of its own:
    `InfoContext(ctx, ...)` carries the span. `.golangci.yml` enables `sloglint` with `context: all`
    for exactly this — **not optional**; it caught real defects the day it landed.
 
-Use `otelchi`/`otelgin` on servers, never bare `otelhttp`: framework wrappers name spans after the
-route *template*, whereas raw paths make `span_name` unbounded and inflate span-metrics cardinality
-until Mimir rejects the writes. On clients, `otelhttp.NewTransport` is what injects `traceparent`.
+Server middleware comes from the **`httpx` module** (`httpx/chix`, `/ginx`, `/echox`, `/muxx`) — a
+separate go.mod root, so services that serve no HTTP do not pull four routers. Never bare
+`otelhttp` on a server: framework wrappers name spans after the route *template*, whereas raw paths
+make `span_name` unbounded and inflate span-metrics cardinality until Mimir rejects writes for every
+tenant. The per-router incantations differ (otelchi needs two options, otelmux needs a hand-written
+formatter and has no option at all, otelgin/otelecho are already correct), which is exactly why this
+is a module with tests rather than a paragraph of docs. On clients, `otelhttp.NewTransport` is what
+injects `traceparent` — and an SDK that builds its own transport (`gocloak`, `resty`) propagates
+nothing and severs the trace silently.
+
+`httpx` pins opentelemetry-go-contrib to **v0.69.0**, the line built against otel v1.44.0. Newer
+contrib (v0.71.0) pulls otel to v1.46 — and because Go selects the maximum version in the graph,
+bumping httpx alone would silently raise otel for every service that also uses `observability-go`.
+`scripts/check-compat.py` asserts the two stay together.
 
 Go log keys are **snake_case** (`order_id`) to match Loki's resource-attribute spelling; the Node
 examples emit camelCase (`orderId`), so a query spanning both stacks must handle both.
@@ -183,9 +194,11 @@ observability-baseline/
 │               ├── default.json               # RED metrics + logs dashboard
 │               └── blast-radius.json          # incident: cause vs. impact
 ├── .golangci.yml                 # sloglint context:all — REQUIRED, see Go section
+├── scripts/check-compat.py        # asserts compat.json matches the packages (CI)
 ├── packages/
 │   ├── observability/            # @digiform-by-gs/observability wrapper (Node)
 │   └── observability-go/         # observability-go module (Go)
+│       └── httpx/                # SEPARATE module: chix/ginx/echox/muxx router middleware
 └── examples/
     ├── nodejs-sample/            # single Express demo app
     ├── microservices/            # checkout-api → orders → payments chain
@@ -225,6 +238,12 @@ npm run -w @digiform-by-gs/observability build && npm run -w @digiform-by-gs/obs
 
 # Go module: test + lint (the lint is load-bearing — see the Go section)
 cd packages/observability-go && go test ./... && golangci-lint run --config ../../.golangci.yml ./...
+
+# httpx is a SEPARATE module - `go test ./...` in the parent does not reach it
+cd packages/observability-go/httpx && go test ./...
+
+# Version pins agree with the packages (CI runs this; run it before any bump)
+python3 scripts/check-compat.py
 
 # Go example service (containerised on `obs`, reaches the collector by DNS)
 docker compose build go-service && docker compose up -d go-service
@@ -322,7 +341,16 @@ Consequence: **any change to a library's public API, the env-var contract, or
 an operational gotcha needs a matching `plugin/skills/` update in the same
 PR.** CI enforces the mechanical half (valid manifests, shellcheck, no
 deployment-specific IPs, no monorepo doc references inside skills); the
-content half is on you. The rehearsal fixtures `examples/plain-express` and
+content half is on you.
+
+**Versions are the exception — those CI does enforce.**
+`plugin/skills/onboard/references/compat.json` is the only version source the
+agent can see (the runner mounts `plugin/` and nothing else), and
+`scripts/check-compat.py` asserts it against the packages and both READMEs. So
+a version bump anywhere means editing compat.json in the same PR or CI fails.
+That guard exists because both onboarding defects shipped to a real client were
+a wrong version picked where nothing authoritative said otherwise: a
+two-major-stale `@vercel/otel`, and a `package.json` change with no lockfile. The rehearsal fixtures `examples/plain-express` and
 `examples/plain-chi` are deliberately uninstrumented "before" apps for testing
 the onboard skill — do not instrument them.
 
