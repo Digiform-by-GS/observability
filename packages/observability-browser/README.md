@@ -42,7 +42,7 @@ initBrowserObservability({
 
 Call it once, as early as possible — `document-load` timings are captured from the Performance API, so a late call still gets them, but fetches made before initialization are not traced.
 
-In Next.js, put this in a client component mounted from the root layout. It complements `@vercel/otel` (which covers the server side) rather than replacing it.
+In Next.js, call it from `pages/_app` (pages router) or a `'use client'` component mounted in the root layout (app router). It complements `@vercel/otel`, which covers the server side, rather than replacing it.
 
 ## Options
 
@@ -61,13 +61,15 @@ In Next.js, put this in a client component mounted from the root layout. It comp
 
 There is **no environment-variable layer**. `process.env` does not exist in a browser, and a bundler replaces it at build time — an "env fallback" would look like a runtime read while actually being a literal frozen when the bundle was compiled. Pass your build-time variables in explicitly.
 
-## Three things that will bite you
+## Four things that will bite you
 
 ### 1. `propagateTo` can break your application
 
 Adding a `traceparent` header makes a cross-origin request **preflighted**. If your backend does not list `traceparent` in `Access-Control-Allow-Headers`, the preflight fails and **the real request never happens**. Enabling this against an unprepared backend does not merely lose correlation — it takes the app down.
 
-Sequence it: **backend CORS first, `propagateTo` second.** Same-origin requests are never preflighted, so a frontend proxying its own API is unaffected. This is why the default is empty.
+Sequence it: **backend CORS first, `propagateTo` second.** This is why the default is empty.
+
+**Same-origin requests are never preflighted**, so if your API is served from the same host as your app (`https://app.example.com` and `https://app.example.com/api/`), none of this applies — propagation is free and safe, and the backend needs no CORS change at all. Check the origin before assuming you need one.
 
 ```
 Access-Control-Allow-Headers: traceparent, tracestate, content-type
@@ -81,7 +83,39 @@ The Node wrapper defaults to `http://localhost:4318`, which is correct there —
 
 The endpoint ships inside your JS bundle and is readable by anyone. Treat it as public; it is why the collector uses an origin allowlist.
 
-### 3. `route` must return a template, never a URL
+### 3. If your app is served over HTTPS, proxy through your own origin
+
+This is the common case, and going straight at the collector does not work:
+
+- **Mixed content.** A page on `https://` cannot POST to an `http://` endpoint.
+  Browsers block it before the request leaves, and no CORS configuration
+  changes that.
+- **Routability.** A collector on a private address is not reachable from a
+  user's phone or home network at all.
+
+Rather than exposing the collector publicly with TLS, forward a path from the
+app's own origin:
+
+```js
+// next.config.js
+async rewrites() {
+  return [{ source: '/otel/:path*', destination: 'http://collector.internal:4319/:path*' }];
+}
+```
+
+```ts
+initBrowserObservability({ serviceName: 'shop-browser', endpoint: '/otel' });
+```
+
+`endpoint` accepts a **path** as well as a URL. The browser then posts
+same-origin, so there is no mixed content, **no preflight, and no CORS involved
+at all** — the collector stays private and the plain-HTTP hop happens
+server-side. Your app server must be able to reach the collector.
+
+The equivalent for other stacks is the same idea: a `vite.config` proxy in
+development, or an nginx/ingress `location` block in production.
+
+### 4. `route` must return a template, never a URL
 
 ```ts
 route: () => '/orders/:id'   // correct

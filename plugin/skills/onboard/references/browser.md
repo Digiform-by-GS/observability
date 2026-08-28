@@ -44,8 +44,9 @@ initBrowserObservability({
 });
 ```
 
-Call it once, as early as the app has a client entry point. For Next.js, a
-client component (`'use client'`) mounted from the root layout.
+Call it once, as early as the app has a client entry point. For Next.js that is
+`pages/_app` on the pages router, or a `'use client'` component mounted from the
+root layout on the app router.
 
 `initBrowserObservability()` returns a no-op when `window` is undefined, so it is
 safe to import from code that also renders on the server.
@@ -67,7 +68,7 @@ time with a literal, so:
 A missing variable becomes `undefined`, which is why `endpoint` throws rather
 than defaulting.
 
-## The three traps
+## The four traps
 
 ### 1. `propagateTo` can break the application — sequence it
 
@@ -90,17 +91,54 @@ Order of operations, and say this to the user explicitly:
 2. Deploy that.
 3. *Then* set `propagateTo`.
 
-Same-origin requests are never preflighted, so an app calling its own API routes
-is unaffected. Default is empty — leave it empty unless you have confirmed the
-backend, and report in the PR body that you did.
+**Check the origins before assuming any of this applies.** Same-origin requests
+are never preflighted, so if the API is served from the same host as the app -
+`https://app.example.com` and `https://app.example.com/api/` - propagation is
+free, safe, and needs no backend change. Compare the app's deployed URL with its
+API base URL before proposing a CORS change to another team.
 
-### 2. `serviceName` must differ from the server-side service
+Default is empty. Leave it empty unless you have confirmed same-origin or
+confirmed the backend allows the header, and say which in the PR body.
+
+### 2. If your app is served over HTTPS, proxy through your own origin
+
+This is the common case, and going straight at the collector does not work:
+
+- **Mixed content.** A page on `https://` cannot POST to an `http://` endpoint.
+  Browsers block it before the request leaves, and no CORS configuration
+  changes that.
+- **Routability.** A collector on a private address is not reachable from a
+  user's phone or home network at all.
+
+Rather than exposing the collector publicly with TLS, forward a path from the
+app's own origin:
+
+```js
+// next.config.js
+async rewrites() {
+  return [{ source: '/otel/:path*', destination: 'http://collector.internal:4319/:path*' }];
+}
+```
+
+```ts
+initBrowserObservability({ serviceName: 'shop-browser', endpoint: '/otel' });
+```
+
+`endpoint` accepts a **path** as well as a URL. The browser then posts
+same-origin, so there is no mixed content, **no preflight, and no CORS involved
+at all** — the collector stays private and the plain-HTTP hop happens
+server-side. Your app server must be able to reach the collector.
+
+The equivalent for other stacks is the same idea: a `vite.config` proxy in
+development, or an nginx/ingress `location` block in production.
+
+### 3. `serviceName` must differ from the server-side service
 
 Use `shop-browser` alongside `shop`. Sharing one name pools server-render
 latency with real-user latency under a single service label, which quietly makes
 p95 meaningless on every existing dashboard.
 
-### 3. `route` must return a template, never a URL
+### 4. `route` must return a template, never a URL
 
 ```ts
 route: () => '/orders/:id'        // correct

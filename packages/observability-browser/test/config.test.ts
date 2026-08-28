@@ -50,3 +50,18 @@ describe('resolveConfig', () => {
     expect(resolveConfig(MINIMAL).route()).toBe('unknown');
   });
 });
+
+// Same-origin proxy deployment: an HTTPS app cannot post to an http:// collector
+// (mixed content), and a LAN address is not routable for real users anyway. The
+// fix is to proxy /otel through the app's own origin, which means `endpoint` is
+// a PATH rather than a URL. Nothing may reject that.
+describe('relative endpoint (same-origin proxy)', () => {
+  it('accepts a path as the endpoint', () => {
+    const config = resolveConfig({ serviceName: 'shop-browser', endpoint: '/otel' });
+    expect(config.endpoint).toBe('/otel');
+  });
+
+  it('strips a trailing slash from a path too', () => {
+    expect(resolveConfig({ serviceName: 'x', endpoint: '/otel/' }).endpoint).toBe('/otel');
+  });
+});

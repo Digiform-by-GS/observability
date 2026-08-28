@@ -38,3 +38,14 @@ describe('ignorePattern', () => {
     expect(new RegExp(escaped).test(specials)).toBe(true);
   });
 });
+
+describe('ignorePattern with a relative endpoint', () => {
+  // The instrumentation sees the RESOLVED absolute URL, so the pattern built
+  // from the relative endpoint still has to match it - otherwise the exporter
+  // traces its own POSTs and the export loop is back.
+  it('matches the resolved absolute URL of a proxied endpoint', () => {
+    const pattern = ignorePattern('/otel');
+    expect(pattern.test('https://app.example.com/otel/v1/traces')).toBe(true);
+    expect(pattern.test('https://app.example.com/api/orders')).toBe(false);
+  });
+});
