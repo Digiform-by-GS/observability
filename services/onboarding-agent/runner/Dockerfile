@@ -1,12 +1,22 @@
 # Sandbox for one onboarding job. Disposable: created per job, destroyed after.
 #
-# It clones the client's repository but NEVER executes its code — no npm
-# install, no go build, no running the app. The onboard skill's work is a
-# source transformation (edit package.json, add the preload flag, rewrite
-# main()), so execution buys nothing and `npm install` alone would be arbitrary
-# remote code execution via postinstall scripts, one hop from the shared
-# observability platform. Verification stays on the client side, where running
-# their own app is unremarkable.
+# It clones the client's repository but NEVER executes its code — it does not
+# run the app, and it does not run anything from the dependency tree. The
+# onboard skill's work is a source transformation (edit package.json, add the
+# preload flag, rewrite main()), so executing the client's code buys nothing,
+# and a plain `npm install` would be arbitrary remote code execution via
+# postinstall scripts, one hop from the shared observability platform.
+# Verification stays on the client side, where running their own app is
+# unremarkable.
+#
+# Two narrow exceptions exist, both non-executing, both earned by a defect that
+# reached a client. `go build`/`go mod tidy` (see below), and exactly two npm
+# forms: `npm install --package-lock-only --ignore-scripts` and
+# `npm ci --dry-run`. Neither writes node_modules or runs a lifecycle script,
+# but both resolve the dependency tree — which is the only way for the agent to
+# discover that the version it picked is stale or that its package.json change
+# has desynced the lockfile. Both of those shipped to a client unnoticed. The
+# allowlist in run-job.sh matches these by exact flag prefix, never `npm:*`.
 # BUILD CONTEXT IS THE REPO ROOT, not this directory — the image bakes in the
 # plugin, which lives at the root. Build with:
 #   docker build -f services/onboarding-agent/runner/Dockerfile -t digiform/onboarding-runner:dev .
@@ -56,11 +66,19 @@ RUN chmod +x /usr/local/bin/run-job
 # the non-root runner then cannot write the module cache. Same trap as the
 # artifact bind mount and the /work tmpfs, in a third disguise.
 RUN useradd -m -u 10001 runner \
- && mkdir -p /work /out /home/runner/go/pkg/mod /home/runner/.cache \
+ && mkdir -p /work /out /home/runner/go/pkg/mod /home/runner/.cache /home/runner/.npm \
  && chown -R runner:runner /work /out /home/runner
-ENV GOPATH=/home/runner/go \
+# HOME must be set explicitly. Docker does NOT derive it from /etc/passwd
+# when USER changes - it stays /root, which the runner cannot write. Go never
+# hit this because GOPATH/GOCACHE/GOMODCACHE are absolute, but npm resolves
+# its cache from HOME and would fail on /root/.npm with EACCES. Fourth
+# appearance of the same ownership trap. npm_config_cache is belt-and-braces
+# so a future HOME change cannot silently break the lockfile step.
+ENV HOME=/home/runner \
+    GOPATH=/home/runner/go \
     GOCACHE=/home/runner/.cache/go-build \
-    GOMODCACHE=/home/runner/go/pkg/mod
+    GOMODCACHE=/home/runner/go/pkg/mod \
+    npm_config_cache=/home/runner/.npm
 USER runner
 WORKDIR /work
 

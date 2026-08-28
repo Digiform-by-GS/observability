@@ -83,9 +83,24 @@ Context for this run:
 Constraints for this environment:
 - You are running unattended. Never ask questions; make the call the skill
   implies and record it in your summary.
-- Do NOT run the application, and do NOT run npm/yarn/pnpm install. Those
-  execute arbitrary postinstall scripts from the client's dependency tree,
-  which is remote code execution on this host.
+- Do NOT run the application. Do NOT run a plain 'npm install', 'yarn', or
+  'pnpm install': those execute arbitrary postinstall scripts from the
+  client's dependency tree, which is remote code execution on this host.
+- For a Node project you MUST run exactly these two, in this order, after any
+  package.json change - they are the only npm forms permitted here, and the
+  flag order matters because the sandbox matches on it:
+      npm install --package-lock-only --ignore-scripts
+      npm ci --dry-run
+  The first writes no node_modules and executes nothing, but it does resolve
+  the dependency tree, which is the only way to learn whether the version you
+  chose is installable at all. The second proves the result is what a
+  production Dockerfile will accept. Confirm package-lock.json is in the diff.
+  A package.json edited without its lockfile is a BROKEN patch, not an
+  incomplete one: 'npm ci' refuses outright when the two disagree, and that
+  has already shipped to a client.
+  If either command fails, your version choice is wrong - fix it and re-run.
+  If the repository has no lockfile at all, do not create one; say so in your
+  summary instead.
 - You MAY run go commands, and for a Go project you MUST. Go bakes dependency
   resolution into the tool: adding a module means downloading it, hashing it,
   and writing the checksum into go.sum, and Go refuses to build without those
@@ -111,6 +126,12 @@ Finish with a short summary: which files you changed, the service name you
 used, and anything the client must do by hand."
 
 set +e
+# The npm entries are deliberately narrow. A blanket Bash(npm:*) would permit
+# 'npm install', which executes postinstall scripts from the client's
+# dependency tree - remote code execution on this host. Only the two
+# non-executing forms are allowed, matched by their exact flag prefix, so the
+# agent can verify and lock its dependency choice without running anything.
+#
 # --plugin-dir must point at the PLUGIN directory - the one containing
 # .claude-plugin/plugin.json - NOT its parent. The parent holds the
 # marketplace manifest, and pointing there loads nothing, silently: the
@@ -120,7 +141,7 @@ set +e
 claude -p "$PROMPT" \
   --plugin-dir /opt/observability-plugin/plugin \
   --permission-mode bypassPermissions \
-  --allowedTools "Read Edit Write Glob Grep Bash(go:*)" \
+  --allowedTools "Read Edit Write Glob Grep Bash(go:*) Bash(npm install --package-lock-only --ignore-scripts:*) Bash(npm ci --dry-run:*)" \
   --max-budget-usd "$BUDGET_USD" \
   --output-format json \
   > "$OUT/agent.json" 2>"$OUT/agent.log"

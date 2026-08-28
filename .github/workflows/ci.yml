@@ -154,6 +154,24 @@ jobs:
           fi
           echo "  plugin manifest present"
 
+      # The runner may run two non-executing npm forms so it can resolve and lock
+      # its dependency choice. A blanket Bash(npm:*) would also permit
+      # 'npm install', which runs postinstall scripts from the client's
+      # untrusted dependency tree - remote code execution one hop from the
+      # shared platform. The narrowness is the whole safety argument, and it is
+      # a single character away from being lost.
+      - name: runner's npm grant stays narrow
+        run: |
+          tools=$(grep -oE -- '--allowedTools "[^"]+"' services/onboarding-agent/runner/run-job.sh)
+          echo "$tools"
+          if echo "$tools" | grep -qE 'Bash\(npm:\*\)|Bash\(npm \*\)'; then
+            echo "blanket npm grant - postinstall scripts would execute here"; exit 1
+          fi
+          for form in 'npm install --package-lock-only --ignore-scripts' 'npm ci --dry-run'; do
+            echo "$tools" | grep -qF "Bash($form" || { echo "missing allowed form: $form"; exit 1; }
+          done
+          echo "  npm grant is limited to the two non-executing forms"
+
       # Every shell script in the repo, not just the plugin's. Both of these
       # scripts report PASS/FAIL on whether telemetry is working, so a silent
       # logic bug in one is worse than a broken build: it reports success that
