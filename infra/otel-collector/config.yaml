@@ -124,17 +124,17 @@ processors:
         action: delete
 
 exporters:
-  otlphttp/logs:
+  otlp_http/logs:
     endpoint: http://loki:3100/otlp
     tls:
       insecure: true
 
-  otlphttp/traces:
+  otlp_http/traces:
     endpoint: http://tempo:4318
     tls:
       insecure: true
 
-  prometheusremotewrite:
+  prometheus_remote_write:
     endpoint: http://mimir:9009/api/v1/push
     tls:
       insecure: true
@@ -161,15 +161,15 @@ service:
     logs:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlphttp/logs]
+      exporters: [otlp_http/logs]
     traces:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlphttp/traces]
+      exporters: [otlp_http/traces]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [prometheusremotewrite]
+      exporters: [prometheus_remote_write]
 
     # Infra metrics ride a SEPARATE pipeline from app telemetry on purpose: a
     # stalled scrape (Redis down, Postgres slow to answer) must not apply
@@ -177,19 +177,19 @@ service:
     metrics/infra:
       receivers: [redis, postgresql, rabbitmq]
       processors: [memory_limiter, resource, batch]
-      exporters: [prometheusremotewrite]
+      exporters: [prometheus_remote_write]
 
     # Browser (RUM) signals. Same exporters as everything else - a browser span
     # is just a span - but its own receiver and, for metrics, its own pruning.
     traces/browser:
       receivers: [otlp/browser]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlphttp/traces]
+      exporters: [otlp_http/traces]
     logs/browser:
       receivers: [otlp/browser]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlphttp/logs]
+      exporters: [otlp_http/logs]
     metrics/browser:
       receivers: [otlp/browser]
       processors: [memory_limiter, resource, resource/prune-browser-labels, batch]
-      exporters: [prometheusremotewrite]
+      exporters: [prometheus_remote_write]

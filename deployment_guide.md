@@ -152,9 +152,9 @@ telemetry.
 
 ```yaml
 exporters:
-  otlphttp/logs:   { endpoint: http://loki-gateway.observability.svc/otlp }
-  otlphttp/traces: { endpoint: http://tempo.observability.svc:4318 }
-  prometheusremotewrite:
+  otlp_http/logs:   { endpoint: http://loki-gateway.observability.svc/otlp }
+  otlp_http/traces: { endpoint: http://tempo.observability.svc:4318 }
+  prometheus_remote_write:
     endpoint: http://mimir-nginx.observability.svc/api/v1/push
     resource_to_telemetry_conversion: { enabled: true }   # keep — but see cardinality note
 ```
