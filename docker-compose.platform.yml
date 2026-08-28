@@ -88,11 +88,14 @@ services:
     environment:
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-shared-dev}
     # 4317/4318 stay on 0.0.0.0 — this is the developer-facing ingest endpoint,
-    # the whole point of the deployment. 8888 is collector self-telemetry and is
+    # the whole point of the deployment. 4319 is the browser/RUM receiver, the
+    # only one with CORS, and it has to be reachable by end users' browsers
+    # rather than only by services. 8888 is collector self-telemetry and is
     # pulled by nothing off-host, so it drops to loopback.
     ports: !override
       - "4317:4317"     # OTLP gRPC  — developer ingest
       - "4318:4318"     # OTLP HTTP  — developer ingest
+      - "4319:4319"     # OTLP HTTP  — browser/RUM ingest, origin-allowlisted
       - "127.0.0.1:8888:8888"   # self-metrics, host-local only
     depends_on: !override
       loki:

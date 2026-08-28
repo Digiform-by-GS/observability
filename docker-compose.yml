@@ -168,6 +168,7 @@ services:
     ports:
       - "4317:4317"     # OTLP gRPC
       - "4318:4318"     # OTLP HTTP
+      - "4319:4319"     # OTLP HTTP, browser/RUM only (CORS enabled)
       - "8888:8888"     # self-metrics
     networks: [obs]
     depends_on:

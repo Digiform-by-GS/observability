@@ -17,6 +17,46 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+  # Browser (RUM) ingest. A SEPARATE receiver on its own port, not CORS bolted
+  # onto 4318, for two reasons:
+  #
+  #   1. Browser telemetry needs its own processors (the metric-label pruning
+  #      below), and a pipeline only gets its own processors if it has its own
+  #      receiver. Once signals merge there is no way to branch on "did this
+  #      come from a browser".
+  #   2. CORS is precisely what makes an endpoint writable from any web page a
+  #      browser happens to be on. Keeping it off 4318 means the port every
+  #      server uses keeps exactly the blast radius it has today.
+  #
+  # THE ORIGIN ALLOWLIST IS THE ONLY ACCESS CONTROL THIS ENDPOINT HAS. An API
+  # key cannot help: anything shipped in a JS bundle is readable by anyone who
+  # opens devtools, so there is no such thing as a secret in browser code. The
+  # allowlist is also not a strong control - a non-browser client simply ignores
+  # CORS - so treat 4319 as writable by anything that can route to this host,
+  # and keep the host off the public internet until real ingest auth exists.
+  #
+  # Adding an origin is a deliberate platform operation: edit this list, then
+  # `docker compose restart otel-collector`. Seeded with localhost only, so a
+  # new app fails closed (and visibly, at preflight) rather than silently
+  # inheriting someone else's allowance.
+  otlp/browser:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4319
+        cors:
+          allowed_origins:
+            - http://localhost:*
+            - http://127.0.0.1:*
+            # - http://<app-host>:<port>     # add real app origins here
+          # traceparent/tracestate are what let a browser span parent the server
+          # span it triggered. Omitting them does not merely lose correlation:
+          # the preflight fails, and with it the export.
+          allowed_headers:
+            - Content-Type
+            - traceparent
+            - tracestate
+          max_age: 7200
+
   # Scrapes the platform's own components. Without this there is no way to see
   # ingest failures, rejected writes, or a backend that has stopped answering —
   # the stack can be losing every signal while its dashboards look calm, because
@@ -113,6 +153,31 @@ processors:
       - key: telemetry.distro.version
         action: delete
 
+  # Browser METRICS only, and a different problem from the processor above.
+  # That one removes attributes that churn per process; these are attributes
+  # that vary per USER. `user_agent.original` is one distinct value per browser
+  # build - thousands across a real user base - and `session.id` is unbounded by
+  # definition. With resource_to_telemetry_conversion enabled, either one
+  # multiplies the whole browser metric set by that many series, and Mimir's
+  # 150k cap is global: overrunning it rejects writes for every service on the
+  # platform, not just the frontend that caused it.
+  #
+  # Traces and logs keep all of it. Per-user detail is exactly what you want
+  # when debugging one session, and neither Tempo nor Loki indexes it the way
+  # Mimir does.
+  resource/prune-browser-labels:
+    attributes:
+      - key: user_agent.original
+        action: delete
+      - key: browser.brands
+        action: delete
+      - key: browser.mobile
+        action: delete
+      - key: session.id
+        action: delete
+      - key: url.full
+        action: delete
+
   batch:
     timeout: 5s
     send_batch_size: 8192
@@ -179,4 +244,19 @@ service:
     metrics/platform:
       receivers: [prometheus/platform]
       processors: [memory_limiter, resource, batch]
+      exporters: [prometheusremotewrite]
+
+    # Browser (RUM). Same exporters as everything else - a browser span is just
+    # a span - but its own receiver, and for metrics its own pruning.
+    traces/browser:
+      receivers: [otlp/browser]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp/traces]
+    logs/browser:
+      receivers: [otlp/browser]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp/logs]
+    metrics/browser:
+      receivers: [otlp/browser]
+      processors: [memory_limiter, resource, resource/prune-browser-labels, batch]
       exporters: [prometheusremotewrite]
