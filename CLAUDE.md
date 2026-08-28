@@ -32,7 +32,7 @@ event-driven RabbitMQ (publish→consume with span links). Infra monitored via c
 | Mimir | `grafana/mimir:3.0.6` |
 | Pyroscope | `grafana/pyroscope:2.1.1` |
 | OTel Collector Contrib | `otel/opentelemetry-collector-contrib:0.154.0` |
-| Node.js | 20 LTS minimum (dev machine runs 24.11.0) |
+| Node.js | `^18.19.0 \|\| >=20.6.0` — the wrapper's `engines`, which is the binding floor (dev machine runs 24.11.0) |
 | Go | **1.25+ required** by OTel v1.44. Dev machine runs 1.26.5 from `~/.local/go`, *not* the apt-installed 1.22 at `/usr/bin/go` |
 | OTel Go SDK | `go.opentelemetry.io/otel` v1.44.0 |
 | TypeScript | 5.x |

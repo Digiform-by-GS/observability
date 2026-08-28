@@ -1,0 +1,73 @@
+{
+  "_readme": "Version pins for everything the onboard skill installs. READ THIS BEFORE CHOOSING ANY VERSION. Never infer a version from the client's existing dependencies, from a registry's 'latest', or from memory: both known onboarding defects came from guessing. CI asserts these values match the packages in this repo.",
+
+  "node": {
+    "package": "@digiform-by-gs/observability",
+    "version": "0.1.2",
+    "install": "npm install @digiform-by-gs/observability@0.1.2",
+    "engines": "^18.19.0 || >=20.6.0",
+    "moduleSystem": "esm-only",
+    "notes": [
+      "No CommonJS build. The client's package.json needs \"type\": \"module\"; --require fails with ERR_PACKAGE_PATH_NOT_EXPORTED.",
+      "Do NOT also install @opentelemetry/api. It is already a dependency, and a second copy at a different major silently breaks context propagation.",
+      "Version 0.1.2 or later is required: earlier versions do not register the ESM loader hook, so express/fastify/pg load unpatched and every server span is named after the bare method."
+    ]
+  },
+
+  "go": {
+    "module": "github.com/Digiform-by-GS/observability/packages/observability-go",
+    "version": "v0.1.1",
+    "install": "go get github.com/Digiform-by-GS/observability/packages/observability-go@v0.1.1",
+    "toolchain": ">=1.25",
+    "raisesOtelTo": "v1.44.0",
+    "notes": [
+      "Adding this module raises go.opentelemetry.io/otel to v1.44.0 across the client's ENTIRE module graph, because Go selects the maximum required version. Expect an unrequested go.mod diff and say so in the PR body.",
+      "Go 1.25 is a hard floor set by OTel v1.44. A 1.22/1.24 toolchain fails to build.",
+      "go mod tidy is mandatory: Go refuses to build without the go.sum checksums, so a go.mod edit alone yields a patch that cannot compile."
+    ]
+  },
+
+  "goRouters": {
+    "_readme": "Router middleware helpers. Prefer these over wiring the upstream otel* middleware by hand: correct span naming is baked in, and getting it wrong fills Mimir and gets writes rejected for every tenant on the platform.",
+    "module": "github.com/Digiform-by-GS/observability/packages/observability-go/httpx",
+    "version": "v0.1.0",
+    "install": "go get github.com/Digiform-by-GS/observability/packages/observability-go/httpx@v0.1.0",
+    "packages": {
+      "chi": "httpx/chix",
+      "gin": "httpx/ginx",
+      "echo": "httpx/echox",
+      "gorilla/mux": "httpx/muxx"
+    },
+    "wraps": {
+      "otelchi": "v0.12.3",
+      "otelgin": "v0.69.0",
+      "otelecho": "v0.69.0",
+      "otelmux": "v0.69.0",
+      "otelhttp": "v0.69.0"
+    },
+    "notes": [
+      "opentelemetry-go-contrib is pinned to the v0.69.0 line because that is the release series built against otel v1.44.0, which is what observability-go requires. Do not bump one without the other.",
+      "For a framework with no httpx package, find its contrib middleware and verify the span name reads 'GET /orders/{id}'. Never bare otelhttp.NewHandler on a server."
+    ]
+  },
+
+  "nextjs": {
+    "package": "@vercel/otel",
+    "version": "^2.1.3",
+    "install": "npm install @vercel/otel@^2.1.3",
+    "minNext": "15",
+    "signals": "traces + metrics only - NO logs",
+    "notes": [
+      "Do NOT install @digiform-by-gs/observability in a Next.js app. Its dependency tree (sdk-node, pino, auto-instrumentations) is exactly what Next's bundler and Edge runtime reject.",
+      "The 2.x line is required. @vercel/otel 1.x peers against OpenTelemetry SDK 1.x, which conflicts with the 2.x SDK this platform's stack is built on - and 'latest' resolution has already picked the wrong one once.",
+      "Custom spans work only in the Node runtime (export const runtime = 'nodejs'). Middleware runs on Edge and is effectively un-instrumentable.",
+      "Server logs are NOT correlated. Say so explicitly rather than implying full coverage."
+    ]
+  },
+
+  "lockfiles": {
+    "_readme": "A dependency change without its lockfile is a broken patch, not an incomplete one. Both are non-negotiable.",
+    "node": "After editing package.json run: npm install --package-lock-only --ignore-scripts. Include package-lock.json in the patch. Verify with npm ci --dry-run - many production Dockerfiles run npm ci, which fails outright when the two files disagree.",
+    "go": "After editing go.mod run: go mod tidy. Include go.sum in the patch. Verify with go build ./..."
+  }
+}

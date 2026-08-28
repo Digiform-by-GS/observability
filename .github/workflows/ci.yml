@@ -97,6 +97,21 @@ jobs:
         working-directory: examples/plain-chi
         run: go build ./...
 
+  compat:
+    name: Compatibility manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # compat.json is the only version source the onboarding agent can see - the
+      # runner mounts plugin/ and nothing else. When it drifts from the packages,
+      # the agent installs versions that do not exist or do not work, and the
+      # first symptom is a client's build failing. Both onboarding defects shipped
+      # so far were a wrong version picked where nothing authoritative said
+      # otherwise, which is exactly what this guards.
+      - name: compat.json agrees with the packages
+        run: python3 scripts/check-compat.py
+
   plugin:
     name: Plugin (observability-onboard)
     runs-on: ubuntu-latest

@@ -5,7 +5,36 @@ call. The Go counterpart of [`@digiform-by-gs/observability`](../observability/)
 sharing its environment-variable contract exactly — so a service author moving
 between the Go, Node, and Next.js stacks configures all three identically.
 
-Requires **Go 1.25+** (upstream OTel v1.44 sets that floor).
+## Compatibility
+
+| Requirement | Version | Notes |
+|---|---|---|
+| Go toolchain | **1.25+** | A hard floor set by OTel v1.44. A 1.22/1.24 toolchain fails to build. |
+| OpenTelemetry Go | `go.opentelemetry.io/otel` **v1.44.0** | Stable traces + metrics. The `sdk/log` and `api-logs` modules are `v0.20.0` (beta) and may change. |
+| slog bridge | `otelslog` v0.19.0 | Correlated logging via `log/slog`. |
+| Redis helper | `redisotel` / `go-redis` v9.21.0 | `redisx` subpackage. |
+| SQL helper | `XSAM/otelsql` v0.43.0 | `sqlx` subpackage. |
+| RabbitMQ helper | `amqp091-go` v1.13.0 | `amqp` subpackage. |
+| Router middleware | `otelchi` v0.12.3, `contrib` v0.69.0 | Separate `httpx` module — not a dependency of this one. |
+
+### Installing this raises your OpenTelemetry version
+
+Go resolves each dependency to the **maximum** version anyone in the graph requires, so
+adding this module pulls `go.opentelemetry.io/otel` up to **v1.44.0** for your entire
+build — including code that has nothing to do with observability. If you were on an
+earlier version you will see an unrequested `go.mod` diff. That is expected, not a
+mistake in your setup.
+
+```bash
+go list -m go.opentelemetry.io/otel   # what you actually resolved to
+```
+
+This matters most in repositories that already have OTel transitively — GCP and AWS
+client libraries pull it in, which is common. It is also why the toolchain floor is not
+negotiable: v1.44 needs Go 1.25, so this module raises both at once.
+
+Your library version is **decoupled from the backend versions** — the module speaks OTLP
+and nothing else, so you can upgrade it without touching Loki/Tempo/Mimir, and vice versa.
 
 ## Quick start
 

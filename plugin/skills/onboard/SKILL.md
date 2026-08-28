@@ -11,6 +11,25 @@ Grafana stack). The libraries do the heavy lifting; your job is wiring them in
 correctly and not falling into the traps listed here. Every trap in this skill
 was hit for real during the platform's development — none are hypothetical.
 
+## Versions come from `compat.json` — never guess one
+
+Read [references/compat.json](references/compat.json) **before installing
+anything**, and copy its `install` strings verbatim. It pins every package this
+skill adds, for every stack.
+
+Do not infer a version from the repo you are onboarding, from a registry's
+`latest`, or from memory. Both defects this onboarding has shipped to a real
+client were versions chosen where nothing authoritative said otherwise: a
+two-major-stale `@vercel/otel` that could not resolve against the platform's
+OpenTelemetry set, and a `package.json` edit with no lockfile that broke the
+client's `npm ci` outright. You cannot tell a current version from a stale one by
+looking at it, so do not try.
+
+`compat.json` also carries the **lockfile rule**, which is not optional: a
+dependency change without its lockfile is a broken patch, not an incomplete one.
+Regenerate it (`npm install --package-lock-only --ignore-scripts`, or
+`go mod tidy`) and include it.
+
 ## Step 0 — Platform endpoints (`.observability/platform.json`)
 
 Check for `.observability/platform.json` in the repo root. If present, use it and
@@ -38,8 +57,10 @@ vars or `.env` (gitignored).
   [references/node.md](references/node.md) — the standard wrapper does not work
   in Next.js and one wouldn't help.**
 - `go.mod` present → Go path. Check imports for `go-chi/chi`, `gin-gonic/gin`,
-  `labstack/echo`. Also note `redis`, `pgx`/`database/sql`, `amqp091` — each has
-  a dedicated helper.
+  `labstack/echo`, `gorilla/mux`. Also note `redis`, `pgx`/`database/sql`,
+  `amqp091` — each has a dedicated helper. Watch for WebSocket routes,
+  scheduled jobs, and HTTP clients that build their own transport; all three
+  need explicit handling covered in [references/go.md](references/go.md).
 - Both present (monorepo) → ask which service(s) to onboard, or onboard each
   detected service one at a time.
 

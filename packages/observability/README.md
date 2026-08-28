@@ -10,8 +10,37 @@ Pairs with the LGTM + OTel Collector stack in the root of this repo.
 npm install @digiform-by-gs/observability
 ```
 
-Node 18.19+ or 20.6+ (floor set by `@opentelemetry/sdk-node`). ESM only — your service needs
-`"type": "module"`.
+## Compatibility
+
+| Requirement | Version | Notes |
+|---|---|---|
+| Node.js runtime | **`^18.19.0 \|\| >=20.6.0`** | Enforced in `engines`. Older 18.x and any 19.x are rejected at install. |
+| Module system | **ESM only** | Your service needs `"type": "module"`. There is **no CommonJS build** — `--require` fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`. |
+| TypeScript | 5.x | Optional; types ship with the package. |
+| OpenTelemetry JS | `@opentelemetry/api` `^1.9.1`, SDK `^0.215.0` (experimental) + `^2.7.0` (stable) | A **compatible set**, pinned together. Upgrade this wrapper, not the individual sub-packages — the `0.x` experimental ones break between minors. |
+| pino | `^10.3.1` | The logger returned by `getLogger()`. |
+
+**`@opentelemetry/api` must be a singleton — do not install it yourself.** It is
+already a dependency here. If your
+project depends on it directly at a different major, npm can resolve two copies — and OTel's
+global registration then refuses the second one, so `context.active()` returns an empty
+context. Spans stop nesting and logs lose their `trace_id`, **with no error and no warning**.
+If you need the API surface, import it from your own dependency tree only after confirming
+`npm ls @opentelemetry/api` reports exactly one version.
+
+Your library version is **decoupled from the backend versions** — the wrapper speaks OTLP
+and nothing else, so you can upgrade it without touching Loki/Tempo/Mimir, and vice versa.
+
+### Next.js
+
+This package does not work in Next.js, and no version of it will. The dependency tree
+(`sdk-node`, `pino`, the auto-instrumentations) is exactly what Next's bundler and Edge
+runtime reject. Use [`@vercel/otel`](https://www.npmjs.com/package/@vercel/otel) `^2.1.3`
+in `instrumentation.ts` instead — same environment-variable contract. Note the `2.x` line
+specifically: `@vercel/otel@1.x` peers against OpenTelemetry SDK 1.x and will not resolve
+against the 2.x SDK used here. It covers traces and metrics but **not logs**, so Next
+server logs are not trace-correlated.
+
 
 ## Quickstart — inline init
 

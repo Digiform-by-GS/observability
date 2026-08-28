@@ -24,27 +24,21 @@ else, so your library version is **decoupled from the backend versions** — you
 can upgrade the wrapper without touching Loki/Tempo/Mimir, and vice versa. OTLP
 is a stable, backward-compatible protocol.
 
-### Node — `@digiform-by-gs/observability@0.1.0`
+The per-library tables are **in the packages themselves**, so they stay visible to
+people who installed from npm or `go get` and have never seen this repo:
 
-| Requirement | Version | Notes |
-|---|---|---|
-| Node.js runtime | **`^18.19.0 \|\| >=20.6.0`** | Enforced in `engines`. Older 18.x / any 19.x is rejected. |
-| Module system | **ESM only** | Your service needs `"type": "module"`. There is **no CommonJS build** — `--require` fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`. |
-| TypeScript | 5.x | Optional; types ship with the package. |
-| OpenTelemetry JS | `@opentelemetry/api` `^1.9.1`, SDK `^0.215.0` (experimental) + `^2.7.0` (stable) | The wrapper pins a **compatible set** — upgrade the wrapper, not the individual sub-packages. The `0.x` experimental packages can break between minors. |
-| pino | `^10.3.1` | The logger you get from `getLogger()`. |
+- **Node** — [`packages/observability/README.md`](packages/observability/README.md#compatibility)
+  (runtime floor `^18.19.0 || >=20.6.0`, ESM-only, the pinned OTel set, and the
+  `@opentelemetry/api` singleton hazard)
+- **Go** — [`packages/observability-go/README.md`](packages/observability-go/README.md#compatibility)
+  (Go 1.25+, OTel v1.44.0, and why installing it raises your OTel version graph-wide)
+- **Next.js** — `@vercel/otel` `^2.1.3`; see [Next.js (server-side)](#nextjs-server-side)
 
-### Go — `github.com/Digiform-by-GS/observability/packages/observability-go`
-
-| Requirement | Version | Notes |
-|---|---|---|
-| Go toolchain | **1.25+** (module built with 1.26.5) | Required by OTel v1.44. A 1.22/1.24 toolchain fails to build. |
-| OpenTelemetry Go | `go.opentelemetry.io/otel` **v1.44.0** (stable traces/metrics) | The `sdk/log` + `api-logs` modules are `v0.20.0` (beta) and may change. |
-| slog bridge | `otelslog` v0.19.0 | Correlated logging via `log/slog`. |
-| Redis helper | `redisotel` / `go-redis` v9.21.0 | `redisx` subpackage. |
-| SQL helper | `XSAM/otelsql` v0.43.0 | `sqlx` subpackage. |
-| RabbitMQ | `amqp091-go` v1.13.0 | `amqp` subpackage. |
-| HTTP (in examples) | `otelchi` v0.12.3, `otelhttp` v0.69.0 | Not module deps — your service picks its router wrapper. |
+The onboarding agent reads the same facts from
+[`plugin/skills/onboard/references/compat.json`](plugin/skills/onboard/references/compat.json),
+which CI asserts against the packages. **Change a version in one place and CI fails** —
+that is deliberate, because the two onboarding defects we have shipped were both a wrong
+version chosen where nothing authoritative said otherwise.
 
 ### The stack this targets
 
