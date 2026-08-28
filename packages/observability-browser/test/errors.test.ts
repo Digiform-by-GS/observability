@@ -12,6 +12,14 @@ let exporter: InMemoryLogRecordExporter;
 let provider: LoggerProvider;
 let detach: () => void;
 
+// An 'error' event that nobody cancels is, to jsdom and to vitest, an uncaught
+// exception - it fails the whole run even when every assertion passes. The
+// library deliberately does NOT call preventDefault: swallowing the host
+// application's errors would be a worse defect than a noisy test run, and the
+// app's own error reporting must still see them. So suppression belongs here,
+// applied only to the synthetic events these tests dispatch.
+const suppressDefault = (event: Event): void => event.preventDefault();
+
 beforeEach(() => {
   exporter = new InMemoryLogRecordExporter();
   // Options object, not a bare exporter — the signature changed in the 0.221
@@ -19,11 +27,13 @@ beforeEach(() => {
   // silently records nothing, which is how this was first written.
   provider = new LoggerProvider({ processors: [new SimpleLogRecordProcessor({ exporter })] });
   logs.setGlobalLoggerProvider(provider);
+  window.addEventListener('error', suppressDefault);
   detach = registerErrorCapture();
 });
 
 afterEach(async () => {
   detach();
+  window.removeEventListener('error', suppressDefault);
   await provider.shutdown();
   logs.disable();
 });
@@ -32,7 +42,13 @@ describe('registerErrorCapture', () => {
   it('records an uncaught error with its stack', () => {
     const error = new TypeError('cannot read properties of undefined');
     window.dispatchEvent(
-      new ErrorEvent('error', { message: error.message, error, filename: 'app.js', lineno: 42 }),
+      new ErrorEvent('error', {
+        message: error.message,
+        error,
+        filename: 'app.js',
+        lineno: 42,
+        cancelable: true,
+      }),
     );
 
     const [record] = exporter.getFinishedLogRecords();
@@ -73,7 +89,9 @@ describe('registerErrorCapture', () => {
     const appHandler = vi.fn();
     window.addEventListener('error', appHandler);
 
-    window.dispatchEvent(new ErrorEvent('error', { message: 'boom', error: new Error('boom') }));
+    window.dispatchEvent(
+      new ErrorEvent('error', { message: 'boom', error: new Error('boom'), cancelable: true }),
+    );
 
     expect(appHandler).toHaveBeenCalledTimes(1);
     expect(exporter.getFinishedLogRecords()).toHaveLength(1);
@@ -82,7 +100,9 @@ describe('registerErrorCapture', () => {
 
   it('stops recording after detach', () => {
     detach();
-    window.dispatchEvent(new ErrorEvent('error', { message: 'boom', error: new Error('boom') }));
+    window.dispatchEvent(
+      new ErrorEvent('error', { message: 'boom', error: new Error('boom'), cancelable: true }),
+    );
     expect(exporter.getFinishedLogRecords()).toHaveLength(0);
   });
 });
