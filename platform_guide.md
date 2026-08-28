@@ -16,6 +16,7 @@ specific to the shared deployment.
 |---|---|---|
 | OTLP ingest (HTTP) | `http://20.20.1.88:4318` | every app — traces, metrics, logs |
 | OTLP ingest (gRPC) | `http://20.20.1.88:4317` | apps preferring gRPC |
+| OTLP ingest (browser) | `http://20.20.1.88:4319` | browser/RUM code — origin-allowlisted |
 | Grafana | `http://20.20.1.88:3000` | humans |
 | Pyroscope | `http://20.20.1.88:4040` | apps that opt into profiling |
 
@@ -25,6 +26,55 @@ publishing them would let anything on the LAN write straight into a backend,
 bypassing every guardrail the collector applies. Query them through Grafana.
 
 ---
+
+## Browser (RUM) ingest — port 4319
+
+Browser telemetry uses a **separate receiver on 4319**, not the 4318 every
+service uses. Two reasons, both structural:
+
+- Only 4319 sends **CORS** headers. A browser will not post to an endpoint that
+  does not, and the failure is a preflight rejection the application cannot see.
+- Browser signals get their own pipeline, so their metric labels can be pruned
+  without touching service telemetry (see below).
+
+### Adding an origin is a deliberate operation
+
+The allowlist in `infra/otel-collector/config.platform.yaml` is seeded with
+localhost only, so a new app **fails closed**. To onboard one:
+
+```bash
+# add the app's origin under receivers.otlp/browser...cors.allowed_origins
+docker compose restart otel-collector
+curl -i -X OPTIONS http://20.20.1.88:4319/v1/traces \
+  -H 'Origin: http://the-app.internal' \
+  -H 'Access-Control-Request-Method: POST'
+# must echo back Access-Control-Allow-Origin; a disallowed origin must NOT
+```
+
+Be clear about what this control is and is not. It stops a *browser* on an
+unlisted origin from posting. It stops nothing else: CORS binds browsers only,
+so anything that can route to the host can write to 4319, and an API key would
+not help because anything shipped in a JS bundle is readable by anyone who
+opens devtools. **Keep this host off the public internet** until real ingest
+authentication exists.
+
+### Why browser metric labels are pruned
+
+`resource/prune-browser-labels` drops `user_agent.original`, `session.id`,
+`browser.brands`, `browser.mobile`, and `url.full` from browser **metrics**
+only. The exporter promotes every resource attribute to a Prometheus label, and
+those attributes vary per *user* rather than per service: `user_agent.original`
+is one distinct value per browser build, and `session.id` is unbounded by
+definition. Either can multiply the browser metric set by thousands.
+
+Mimir's `max_global_series_per_user` is **global** on this single-tenant
+deployment, so exceeding it rejects metric writes for **every service on the
+platform**, not only the frontend that caused it. Traces and logs keep all of
+these attributes — that detail is exactly what you want when debugging one
+user's session, and neither Tempo nor Loki indexes it the way Mimir does.
+
+Watch `sum(cortex_ingester_memory_series)` after onboarding the first browser
+app; the existing alert fires at 70% of the cap.
 
 ## Onboarding a service
 

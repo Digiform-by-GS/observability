@@ -65,6 +65,22 @@
       "Server logs are NOT correlated. Say so explicitly rather than implying full coverage."
     ]
   },
+  "browser": {
+    "package": "@digiform-by-gs/observability-browser",
+    "version": "0.1.0",
+    "install": "npm install @digiform-by-gs/observability-browser@0.1.0",
+    "moduleSystem": "esm-only",
+    "requiresPlatformEndpoint": "The browser OTLP receiver (port 4319 on this platform), NOT the standard OTLP port. It is a different port because it is the only one with CORS.",
+    "notes": [
+      "This is for BROWSER code only. Never install it in a Node service, and never install @digiform-by-gs/observability in a browser - their dependency trees target different runtimes.",
+      "It sits on a NEWER OpenTelemetry line than the Node wrapper (SDK 2.10 / experimental 0.221 vs 2.7 / 0.215). That is forced: @opentelemetry/instrumentation-fetch pins sdk-trace-web to an exact version. The two are never in the same bundle, so they do not need to agree.",
+      "endpoint and serviceName are REQUIRED and have no defaults. In a browser 'localhost' means the visitor's own machine, so a default endpoint would work on a developer laptop and silently report nothing from real users.",
+      "Use a serviceName DISTINCT from the server-side service (e.g. 'shop-browser' beside 'shop'). Sharing one merges server-render and real-user latency into a single service label and makes p95 meaningless on existing dashboards.",
+      "propagateTo is OPT-IN and must be sequenced. It adds a traceparent header, which makes cross-origin requests preflighted; if the backend does not list traceparent in Access-Control-Allow-Headers the preflight fails and THE REAL REQUEST NEVER HAPPENS. Change the backend's CORS first, then enable it. Tell the user this explicitly - it is the one change here that can break their application.",
+      "The route option must return a route TEMPLATE ('/orders/:id'), never location.pathname. It labels web-vital metrics, so a concrete path mints a series per URL and fills the shared metric store, which rejects writes for every service on the platform.",
+      "The origin must be added to the collector's CORS allowlist by a platform operator before anything arrives. Without it every export fails at preflight."
+    ]
+  },
   "lockfiles": {
     "_readme": "A dependency change without its lockfile is a broken patch, not an incomplete one. Both are non-negotiable.",
     "node": "After editing package.json run: npm install --package-lock-only --ignore-scripts. Include package-lock.json in the patch. Verify with npm ci --dry-run - many production Dockerfiles run npm ci, which fails outright when the two files disagree.",
