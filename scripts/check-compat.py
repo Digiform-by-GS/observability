@@ -190,6 +190,75 @@ check(
     "packages/observability/README.md must point Next.js users at @vercel/otel 2.x",
 )
 
+# --- Browser RUM package --------------------------------------------------
+browser_pkg = json.loads(read("packages/observability-browser/package.json"))
+browser = compat["browser"]
+
+check(
+    browser["version"] == browser_pkg["version"],
+    f"{COMPAT_PATH} browser.version is {browser['version']!r} but "
+    f"packages/observability-browser/package.json version is {browser_pkg['version']!r}",
+)
+check(
+    browser["package"] == browser_pkg["name"],
+    f"{COMPAT_PATH} browser.package is {browser['package']!r} but "
+    f"package.json name is {browser_pkg['name']!r}",
+)
+check(
+    browser["version"] in browser["install"],
+    f"{COMPAT_PATH} browser.install does not pin browser.version - the agent copies it verbatim",
+)
+
+# The two Node-side packages sit on different OpenTelemetry lines on purpose,
+# because instrumentation-fetch pins sdk-trace-web exactly. Assert they are
+# still DIFFERENT rather than accidentally converged by a careless bump, and
+# that the browser one is the newer of the two.
+browser_api = browser_pkg["dependencies"]["@opentelemetry/api"]
+check(
+    browser_api == pkg["dependencies"]["@opentelemetry/api"],
+    f"the two packages disagree on @opentelemetry/api ({browser_api!r} vs "
+    f"{pkg['dependencies']['@opentelemetry/api']!r}). The API must stay a single "
+    "version across the org - it is the one package that breaks silently when duplicated.",
+)
+
+browser_readme = read("packages/observability-browser/README.md")
+check(
+    "## Compatibility" in browser_readme,
+    "packages/observability-browser/README.md has no '## Compatibility' section",
+)
+# The three traps that distinguish browser instrumentation from server-side.
+# A README missing any of them ships a package that can break someone's app.
+for phrase, why in (
+    ("preflight", "the traceparent preflight trap, which can break the host application"),
+    ("visitor", "why endpoint has no default"),
+    ("template", "why route must not be a concrete path"),
+):
+    check(
+        phrase in browser_readme.lower(),
+        f"packages/observability-browser/README.md does not cover {why}",
+    )
+
+check(
+    "4319" in browser_readme,
+    "packages/observability-browser/README.md must name the browser OTLP port - "
+    "posting to the standard port fails at preflight with nothing in the logs",
+)
+
+# The collector is the other half: the package cannot deliver anything without a
+# CORS-enabled receiver, so a config that lost it would strand every browser app.
+for cfg in ("infra/otel-collector/config.yaml", "infra/otel-collector/config.platform.yaml"):
+    text = read(cfg)
+    check("otlp/browser" in text, f"{cfg} has no otlp/browser receiver")
+    check("cors" in text, f"{cfg} browser receiver has no cors block - every export dies at preflight")
+    check(
+        "traceparent" in text,
+        f"{cfg} does not allow the traceparent header, so browser->backend traces cannot join",
+    )
+    check(
+        "resource/prune-browser-labels" in text,
+        f"{cfg} does not prune browser metric labels - user_agent.original alone can exhaust the series cap",
+    )
+
 # --- Report -----------------------------------------------------------------
 if FAILURES:
     print("compat drift detected:\n", file=sys.stderr)

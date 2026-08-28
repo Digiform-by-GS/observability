@@ -29,6 +29,14 @@ jobs:
         run: npm run -w @digiform-by-gs/observability test
       - name: Typecheck wrapper
         run: npm run -w @digiform-by-gs/observability typecheck
+
+      # Browser/RUM package. Build before test, same as the wrapper.
+      - name: Build browser package
+        run: npm run -w @digiform-by-gs/observability-browser build
+      - name: Test browser package (vitest)
+        run: npm run -w @digiform-by-gs/observability-browser test
+      - name: Typecheck browser package
+        run: npm run -w @digiform-by-gs/observability-browser typecheck
       - name: Typecheck examples
         run: |
           npm run -w @digiform-by-gs/nodejs-sample typecheck

@@ -134,7 +134,9 @@ these plainly rather than implying full coverage:
   logs from Next are not part of this onboarding.
 - If the browser calls your backend directly rather than through Next API
   routes, this instruments **server-side rendering only**. It says nothing about
-  what the user experienced. Say so.
+  what the user experienced. Say so — and offer the browser half, which is a
+  separate package and a separate platform endpoint: see
+  [browser.md](browser.md).
 
 ## Lockfiles are part of the patch, not a follow-up
 

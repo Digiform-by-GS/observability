@@ -1,6 +1,6 @@
 ---
 name: onboard
-description: Instrument this repository's service(s) against the Digiform observability platform — traces, metrics, and trace-correlated logs over OTLP. Use when the user wants to onboard a service, add observability/telemetry/tracing, or connect to the observability platform. Handles Node.js (Express/Fastify/plain) and Go (chi/gin/echo); Next.js gets a special path.
+description: Instrument this repository's service(s) against the Digiform observability platform — traces, metrics, and trace-correlated logs over OTLP. Use when the user wants to onboard a service, add observability/telemetry/tracing, or connect to the observability platform. Handles Node.js (Express/Fastify/plain) and Go (chi/gin/echo/gorilla); Next.js and browser/RUM get their own paths.
 ---
 
 # Onboard a service onto the observability platform
@@ -39,10 +39,17 @@ platform operator publishes these; do not guess), then create it:
 ```json
 {
   "otlp_http": "http://<platform-host>:4318",
+  "otlp_browser": "http://<platform-host>:4319",
   "grafana": "http://<platform-host>:3000",
   "pyroscope": "http://<platform-host>:4040"
 }
 ```
+
+`otlp_browser` is a **different port from `otlp_http`, not a typo**: it is the
+only receiver with CORS, which is what lets a browser post to it at all. Omit
+the key if the platform does not publish one — then browser telemetry is not
+available and you should say so rather than pointing browser code at
+`otlp_http`, where every export dies at the preflight.
 
 Commit this file — it contains no secrets, and it is how every other skill in
 this plugin (verify, dashboards) finds the platform without asking again. If the
@@ -56,6 +63,15 @@ vars or `.env` (gitignored).
   `fastify`, `next`. **If `next` is present → use the Next.js path in
   [references/node.md](references/node.md) — the standard wrapper does not work
   in Next.js and one wouldn't help.**
+- A **frontend** (`react`, `vue`, `svelte`, `next`, `vite`, or an `index.html`
+  entry) → it also has a browser half. Server-side instrumentation says nothing
+  about what the user experienced, which matters most when the browser calls an
+  API directly rather than through the app's own server. See
+  [references/browser.md](references/browser.md). This is an ADDITION to the
+  server-side path, not a replacement — a Next.js app wants both.
+  **Check first that the platform publishes a browser OTLP endpoint**; without
+  one, browser telemetry cannot be delivered at all and you should onboard the
+  server side only and say so.
 - `go.mod` present → Go path. Check imports for `go-chi/chi`, `gin-gonic/gin`,
   `labstack/echo`, `gorilla/mux`. Also note `redis`, `pgx`/`database/sql`,
   `amqp091` — each has a dedicated helper. Watch for WebSocket routes,
@@ -67,6 +83,7 @@ vars or `.env` (gitignored).
 Read the matching reference before editing anything:
 - Node / Next.js: [references/node.md](references/node.md)
 - Go: [references/go.md](references/go.md)
+- Browser / RUM: [references/browser.md](references/browser.md)
 
 ## Step 2 — Environment variables (the shared contract, both stacks)
 

@@ -155,6 +155,40 @@ The `HeaderCarrier` over `amqp091.Table` is written and unit-tested in-repo, not
 dependency, because AMQP headers are `map[string]interface{}`: `Get` must type-assert and return `""`
 for a non-string, so a foreign producer's numeric header can't panic the consumer.
 
+### Browser / RUM — `packages/observability-browser/`
+
+Browser telemetry inverts three assumptions that hold on a server, and each
+inversion is a silent failure:
+
+1. **`localhost` means the visitor's machine.** The Node wrapper's
+   `http://localhost:4318` default is safe because the process sits beside the
+   collector. Copying it to the browser would work perfectly on a developer
+   laptop and report nothing from a single real user, so `endpoint` is required
+   with no default.
+2. **`propagateTo` can break the host application.** Adding `traceparent` makes
+   a cross-origin request *preflighted*; if the API does not allow the header
+   the preflight fails and **the real request never happens**. It is opt-in and
+   empty by default, and must be sequenced after the backend's CORS change.
+3. **The exporter posts over `fetch`.** With fetch instrumented and nothing
+   excluded, exporting a span produces a span. `ignoreUrls` on the endpoint is
+   what breaks the loop, and without it every open tab floods the collector.
+
+Ingest is a **separate collector receiver on 4319** — the only one with CORS,
+which is what a browser requires and what makes an endpoint writable from any
+page. Browser metrics get `resource/prune-browser-labels`: `user_agent.original`
+is one value per browser build and `session.id` is unbounded, and Mimir's series
+cap is global, so one frontend can get writes rejected for every service.
+
+This package sits on a **newer OTel line than the Node wrapper** (SDK 2.10 /
+experimental 0.221 vs 2.7 / 0.215) because `instrumentation-fetch` pins
+`sdk-trace-web` to an exact version. They target different runtimes and are
+never in one bundle, so they do not need to agree — but note the 0.221 signature
+change: `BatchLogRecordProcessor`/`SimpleLogRecordProcessor` take `{ exporter }`,
+and passed positionally they silently record nothing.
+
+`instrumentation-user-interaction` is deliberately excluded — it names spans
+after event type plus DOM target, which is unbounded.
+
 ### Signal-specific label gotchas
 - Tempo's metrics generator labels spanmetrics/service-graph series **`service`**, *not* `service_name`.
   Querying `sum by (service_name)` silently collapses every service into one unlabeled series.
@@ -197,6 +231,7 @@ observability-baseline/
 ├── scripts/check-compat.py        # asserts compat.json matches the packages (CI)
 ├── packages/
 │   ├── observability/            # @digiform-by-gs/observability wrapper (Node)
+│   ├── observability-browser/    # browser/RUM package — newer OTel line, see below
 │   └── observability-go/         # observability-go module (Go)
 │       └── httpx/                # SEPARATE module: chix/ginx/echox/muxx router middleware
 └── examples/
@@ -274,6 +309,7 @@ First boot of any app from `/mnt/d` takes ~90–175s (WSL2 9P filesystem bridge)
 | 3200 | Tempo | HTTP API (Grafana datasource) |
 | 4317 | OTel Collector | OTLP gRPC receiver |
 | 4318 | OTel Collector | OTLP HTTP receiver |
+| 4319 | OTel Collector | OTLP HTTP receiver for BROWSERS — the only one with CORS |
 | 8888 | OTel Collector | Self-metrics (Prometheus) |
 | 9009 | Mimir | Prometheus-compatible API |
 | 4040 | Pyroscope | Continuous profiling ingest + UI |
