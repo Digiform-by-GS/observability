@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -108,7 +109,7 @@ func TestConcretePathNeverReachesSpanName(t *testing.T) {
 	}
 	for _, n := range names {
 		for _, id := range []string{"42", "99"} {
-			if containsToken(n, id) {
+			if strings.Contains(n, id) {
 				t.Errorf("span name %q contains the concrete id %q", n, id)
 			}
 		}
@@ -123,7 +124,7 @@ func TestUnmatchedRouteDoesNotLeakThePath(t *testing.T) {
 	})
 
 	for _, n := range names {
-		if containsToken(n, "8f2a1c") {
+		if strings.Contains(n, "8f2a1c") {
 			t.Errorf("span name %q leaked an unmatched concrete path", n)
 		}
 	}
@@ -161,13 +162,4 @@ func TestCallerOptionsAreApplied(t *testing.T) {
 	if got := len(sr.Ended()); got != 0 {
 		t.Errorf("filter was ignored: recorded %d span(s), want 0", got)
 	}
-}
-
-func containsToken(s, token string) bool {
-	for i := 0; i+len(token) <= len(s); i++ {
-		if s[i:i+len(token)] == token {
-			return true
-		}
-	}
-	return false
 }
