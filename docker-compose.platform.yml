@@ -132,5 +132,14 @@ services:
       # Consumed by provisioning/alerting/contact-points.yaml via $__env{}.
       # Kept out of the provisioning file because a Discord webhook is a
       # credential and this repository is public.
-      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      # `:?` rather than a default, for the same reason as the admin password
+      # above: an empty value here is not a degraded alerting setup, it is a
+      # Grafana that will not start at all. Failing in Compose with this message
+      # beats failing three layers down inside Grafana's module manager.
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:?set DISCORD_WEBHOOK_URL in .env}
+    # Alerting is provisioned only on the shared platform - Discord is the
+    # platform's notification channel, and a developer running the stack locally
+    # has no use for it. Appended to the base file's volume list.
+    volumes:
+      - ./infra/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
     # Port 3000 is inherited from the base file.
