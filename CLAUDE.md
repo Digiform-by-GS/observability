@@ -249,6 +249,14 @@ observability-baseline/
     └── go-echo-service/          # Go example (Echo router)
 ```
 
+Grafana's provisioning tree is mounted **per-directory, not wholesale**: the base file mounts
+`datasources/` and `dashboards/`, and `docker-compose.platform.yml` adds `alerting/`. Alerting
+references `$__env{DISCORD_WEBHOOK_URL}`, and Grafana treats a missing or empty value as a **fatal**
+provisioning error — the entire server refuses to start, dashboards included. Mounting the whole
+tree meant a clean `docker compose up` died with a message about Discord for someone who never
+asked for alerting. Consequence: **local dev has no alert rules at all**, which is intended —
+alerts are a shared-platform concern and Discord is the platform's channel.
+
 `docker-compose.yml` deliberately has **no healthchecks** on Loki/Tempo/Mimir: those images are
 distroless (no shell, no wget/curl), so any `CMD-SHELL` probe fails forever and marks them `unhealthy`.
 `depends_on` uses `service_started`. Check readiness from the host instead (`curl :3100/ready`).

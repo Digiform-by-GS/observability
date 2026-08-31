@@ -187,7 +187,15 @@ services:
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
     volumes:
       - ./infra/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
-      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      # Mounted per-directory, NOT as the whole provisioning tree. The alerting
+      # config references $__env{DISCORD_WEBHOOK_URL}, and Grafana treats a
+      # missing or empty value as a fatal provisioning error - the whole server
+      # refuses to start, dashboards and datasources included. Mounting the
+      # tree wholesale therefore made `docker compose up` on a clean checkout
+      # fail with a message about Discord, for someone who never asked for
+      # alerting. The platform overlay adds the alerting directory back.
+      - ./infra/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infra/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
       - "3000:3000"
