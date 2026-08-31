@@ -198,6 +198,14 @@ after event type plus DOM target, which is unbounded.
 - Exemplars need **two** settings to agree: `max_global_exemplars_per_user` non-zero in Mimir (0 =
   drop everything Tempo sends) and `exemplarTraceIdDestinations: name: traceID` (camelCase) in the
   Grafana datasource. Either wrong = a dead link with no error anywhere.
+- **OTLP metric units become part of the Prometheus name, inconsistently.** `browser.web_vital.lcp`
+  with unit `ms` arrives as `browser_web_vital_lcp_milliseconds_bucket`, but `browser.web_vital.cls`
+  with unit `1` arrives as `browser_web_vital_cls_bucket` — no suffix. Guessing symmetry gives four
+  working panels and one permanently empty one. `scripts/gen-dashboards.py` documents this; verify
+  new metric names against `/prometheus/api/v1/label/__name__/values` rather than predicting them.
+- Loki keeps `severity_text` as **structured metadata**, not a label — same as `trace_id`. Filter
+  with `| severity_text="ERROR"` after the stream selector; a label matcher `{severity_text="ERROR"}`
+  silently returns nothing.
 - Pyroscope's Node SDK emits profile type `memory:inuse_space:bytes:inuse_space:bytes`. The Go-style
   `memory:inuse_space:bytes:space:bytes` returns an empty flame graph, not an error.
 - **Series growth is dominated by span-metrics histograms, not by receivers.** Adding Redis +
@@ -336,6 +344,12 @@ nothing. Probe bindability with a throwaway `net.createServer()` script rather t
 - **Dashboards → Observability → Observability Overview**: RED metrics + log stream
 - **Dashboards → Observability → Blast Radius**: failing dependency edges, impacted services, and a
   `trace_id` textbox that pulls one request's logs from every service it touched
+- **Dashboards → Observability → Platform Health**: the stack's own health — component up/down,
+  collector export failures and queue depth, discarded writes, and Mimir's series count against the
+  150k cap. This is where the `platform-internal` alerts point; before it, they fired with nowhere
+  to look
+- **Dashboards → Observability → Browser (RUM)**: Core Web Vitals at p75 by route template, vitals
+  rating mix, browser span latency, and JS errors
 - **Explore → Loki**: raw log search; click "View Trace" on any log with a trace_id
 - **Explore → Tempo**: TraceQL query interface (`{ status = error }`); Service Graph tab for the map
 - **Explore → prometheus**: raw PromQL for span metrics from Tempo's generator (datasource points at Mimir)
