@@ -20,10 +20,14 @@ SERVICE_NAME="${SERVICE_NAME:-}"
 TEAM="${TEAM:-}"
 BASE_BRANCH="${BASE_BRANCH:-}"
 BUDGET_USD="${BUDGET_USD:-2.00}"
+# Baked into the image at build time. Recorded on every result so a patch can
+# always be traced back to the runner that produced it - "which skills did this
+# job actually have" is otherwise unanswerable after the fact.
+RUNNER_REVISION="${OBS_RUNNER_REVISION:-unknown}"
 
 fail() {
-  jq -n --arg status failed --arg error "$1" \
-    '{status:$status, error:$error}' > "$OUT/result.json"
+  jq -n --arg status failed --arg error "$1" --arg rev "$RUNNER_REVISION" \
+    '{status:$status, error:$error, runner_revision:$rev}' > "$OUT/result.json"
   echo "FAILED: $1" >&2
   exit 1
 }
@@ -161,7 +165,7 @@ if [ -z "$AGENT_CHANGES" ]; then
   # Not a failure. A repository with nothing to onboard is a real answer, and
   # the summary explains it; forcing this to fail is what pushes the agent to
   # invent files so the job "succeeds".
-  jq -n --arg status no_changes --arg summary "$SUMMARY" --arg cost "$COST"     '{status:$status, summary:$summary, cost_usd:(($cost|tonumber?) // null), files_changed:[]}'     > "$OUT/result.json"
+  jq -n --arg status no_changes --arg summary "$SUMMARY" --arg cost "$COST" --arg rev "$RUNNER_REVISION"     '{status:$status, summary:$summary, cost_usd:(($cost|tonumber?) // null), files_changed:[], runner_revision:$rev}'     > "$OUT/result.json"
   echo "no changes: nothing to onboard in this repository"
   exit 0
 fi
@@ -222,8 +226,9 @@ fi
 
 jq -n --arg status succeeded --arg base "$BASE_SHA" --arg summary "$SUMMARY" \
       --arg cost "$COST" --arg pr "$PR_URL" --argjson files "$CHANGED" \
+      --arg rev "$RUNNER_REVISION" \
   '{status:$status, base_sha:$base, files_changed:$files, summary:$summary,
-    cost_usd:(($cost|tonumber?) // null),
+    cost_usd:(($cost|tonumber?) // null), runner_revision:$rev,
     pull_request:(if $pr == "" then null else $pr end)}' > "$OUT/result.json"
 
 echo "done: $(jq -r '.files_changed | length' "$OUT/result.json") file(s) changed"

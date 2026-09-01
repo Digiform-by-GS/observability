@@ -79,6 +79,19 @@ ENV HOME=/home/runner \
     GOCACHE=/home/runner/.cache/go-build \
     GOMODCACHE=/home/runner/go/pkg/mod \
     npm_config_cache=/home/runner/.npm
+# Build provenance. Without this an image has no identity beyond its tag, and a
+# stale runner is indistinguishable from a current one - which is exactly how a
+# runner built before the compat manifest and the browser skill existed stayed
+# in service, silently onboarding clients with the defects those changes fixed.
+# Image creation date is not a substitute: it says when `docker build` ran, not
+# which source it ran against.
+#
+# Last, deliberately: an ARG invalidates every layer below it, and this value
+# changes on every commit.
+ARG GIT_SHA=unknown
+ENV OBS_RUNNER_REVISION=${GIT_SHA}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
+
 USER runner
 WORKDIR /work
 

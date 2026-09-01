@@ -296,6 +296,9 @@ cd packages/observability-go/httpx && go test ./...
 # Version pins agree with the packages (CI runs this; run it before any bump)
 python3 scripts/check-compat.py
 
+# Is the PLATFORM HOST running what the repo says? (run on the VM, before/after deploys)
+./scripts/check-deployment.sh
+
 # Go example service (containerised on `obs`, reaches the collector by DNS)
 docker compose build go-service && docker compose up -d go-service
 curl localhost:8090/work
