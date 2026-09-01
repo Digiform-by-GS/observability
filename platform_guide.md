@@ -136,6 +136,54 @@ writes past that with a visible 4xx rather than dying quietly.
 
 ---
 
+## Updating the platform
+
+```bash
+./scripts/check-deployment.sh     # what is stale?
+```
+
+Run it before and after any deploy, and from cron if you want to be told rather
+than to remember. It compares three things against the repository, because on
+this host none of them can be checked any other way — a container that says `Up`
+tells you nothing about which version it is running:
+
+1. **The checkout** — branch and commit against `origin/main`.
+2. **The onboarding runner image** — its baked build revision against every
+   commit that has since touched `services/onboarding-agent/runner/` or
+   `plugin/`.
+3. **Running containers** — whether a bind-mounted config was edited after the
+   container that reads it started.
+
+To reconcile:
+
+```bash
+git checkout main && git pull --ff-only origin main
+docker compose -f docker-compose.yml -f docker-compose.platform.yml up -d
+```
+
+**`up -d`, not `restart`.** Port mappings are fixed when a container is created,
+so `restart` cannot add one — it would bring the collector back with a new
+config and no published port, and every browser export would fail with nothing
+in the logs to explain it. `up -d` recreates only what changed; watch for
+`Recreated` rather than `Running` in the output.
+
+If the runner image is flagged, rebuild it. The agent starts a fresh runner per
+job, so this needs no downtime and the agent container is left alone:
+
+```bash
+docker build -f services/onboarding-agent/runner/Dockerfile   --build-arg GIT_SHA=$(git rev-parse HEAD) -t digiform/onboarding-runner:dev .
+```
+
+**`--build-arg GIT_SHA` is what makes the image checkable.** Without it the image
+stamps itself `unknown` and check 2 above can only tell you that it does not
+know. This is not hypothetical: the runner ran for weeks built from source that
+predated the version manifest and the browser skill, quietly onboarding clients
+with the defects those changes fixed, and nothing reported it. Every job's
+`result.json` now records `runner_revision`, so a patch can be traced back to
+the runner that produced it.
+
+---
+
 ## Operator runbook
 
 Everything runs from `/opt/observability` on the VM.
