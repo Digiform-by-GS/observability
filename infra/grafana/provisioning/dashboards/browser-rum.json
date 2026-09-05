@@ -103,7 +103,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.75, sum by (le, route) (rate(browser_web_vital_lcp_milliseconds_bucket{service_name=~\"$service\"}[5m])))",
+          "expr": "histogram_quantile(0.75, sum by (le, route) (rate(browser_web_vital_lcp_milliseconds_bucket{service_name=~\"$service\", deployment_environment=~\"$environment\"}[5m])))",
           "refId": "A",
           "range": true,
           "legendFormat": "{{route}}"
@@ -190,7 +190,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.75, sum by (le, route) (rate(browser_web_vital_inp_milliseconds_bucket{service_name=~\"$service\"}[5m])))",
+          "expr": "histogram_quantile(0.75, sum by (le, route) (rate(browser_web_vital_inp_milliseconds_bucket{service_name=~\"$service\", deployment_environment=~\"$environment\"}[5m])))",
           "refId": "A",
           "range": true,
           "legendFormat": "{{route}}"
@@ -277,7 +277,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.75, sum by (le, route) (rate(browser_web_vital_cls_bucket{service_name=~\"$service\"}[5m])))",
+          "expr": "histogram_quantile(0.75, sum by (le, route) (rate(browser_web_vital_cls_bucket{service_name=~\"$service\", deployment_environment=~\"$environment\"}[5m])))",
           "refId": "A",
           "range": true,
           "legendFormat": "{{route}}"
@@ -360,7 +360,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (rating) (rate(browser_web_vital_lcp_milliseconds_count{service_name=~\"$service\"}[5m]))",
+          "expr": "sum by (rating) (rate(browser_web_vital_lcp_milliseconds_count{service_name=~\"$service\", deployment_environment=~\"$environment\"}[5m]))",
           "refId": "A",
           "range": true,
           "legendFormat": "{{rating}}"
@@ -443,7 +443,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_spanmetrics_latency_bucket{service=~\"$service\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_spanmetrics_latency_bucket{service=~\"$service\", deployment_environment=~\"$environment\"}[5m])))",
           "refId": "A",
           "range": true,
           "legendFormat": "{{span_name}}"
@@ -526,7 +526,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=~\"$service\"} | severity_text=\"ERROR\" [5m]))",
+          "expr": "sum(count_over_time({service_name=~\"$service\", deployment_environment=~\"$environment\"} | severity_text=\"ERROR\" [5m]))",
           "refId": "A",
           "range": true,
           "legendFormat": "errors"
@@ -564,7 +564,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "{service_name=~\"$service\"} | severity_text=\"ERROR\"",
+          "expr": "{service_name=~\"$service\", deployment_environment=~\"$environment\"} | severity_text=\"ERROR\"",
           "refId": "A",
           "range": true
         }
@@ -595,7 +595,35 @@
         "refresh": 2,
         "multi": true,
         "includeAll": true,
-        "allValue": ".+",
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "sort": 1
+      },
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(browser_web_vital_lcp_milliseconds_count, deployment_environment)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
         "current": {
           "selected": true,
           "text": [

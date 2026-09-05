@@ -271,21 +271,36 @@ platform_panels = [
 # Core Web Vitals are reported ONCE PER PAGE VIEW, not continuously, so these
 # panels are sparse by nature on a low-traffic app. p75 is the convention Google
 # uses for vitals and the one their thresholds are defined against.
-SERVICE_VAR = {
-    "name": "service",
-    "label": "Browser service",
-    "type": "query",
-    "datasource": PROM,
-    "query": {"query": "label_values(browser_web_vital_lcp_milliseconds_count, service_name)",
-              "refId": "StandardVariableQuery"},
-    "refresh": 2,
-    "multi": True,
-    "includeAll": True,
-    "allValue": ".+",
-    "current": {"selected": True, "text": ["All"], "value": ["$__all"]},
-    "options": [],
-    "sort": 1,
-}
+def query_var(name, label, query):
+    return {
+        "name": name,
+        "label": label,
+        "type": "query",
+        "datasource": PROM,
+        "query": {"query": query, "refId": "StandardVariableQuery"},
+        "refresh": 2,
+        "multi": True,
+        "includeAll": True,
+        # ".*" not ".+". In practice every series has this label, because the
+        # collector inserts deployment.environment on everything that passes
+        # through it - verified: a span sent WITHOUT the attribute still came out
+        # labelled. So this is belt-and-braces rather than a save. It costs
+        # nothing and degrades gracefully if a series ever reaches Mimir without
+        # going through that processor, whereas ".+" would silently drop it from
+        # every panel at once.
+        "allValue": ".*",
+        "current": {"selected": True, "text": ["All"], "value": ["$__all"]},
+        "options": [],
+        "sort": 1,
+    }
+
+
+SERVICE_VAR = query_var(
+    "service", "Browser service",
+    "label_values(browser_web_vital_lcp_milliseconds_count, service_name)")
+ENVIRONMENT_VAR = query_var(
+    "environment", "Environment",
+    "label_values(browser_web_vital_lcp_milliseconds_count, deployment_environment)")
 
 
 def vital(title, metric, x, y, w, unit, desc, good=None):
@@ -293,7 +308,7 @@ def vital(title, metric, x, y, w, unit, desc, good=None):
     return timeseries(
         title,
         [target(
-            "histogram_quantile(0.75, sum by (le, route) (rate(%s_bucket{service_name=~\"$service\"}[5m])))" % metric,
+            "histogram_quantile(0.75, sum by (le, route) (rate(%s_bucket{service_name=~\"$service\", deployment_environment=~\"$environment\"}[5m])))" % metric,
             "{{route}}")],
         x, y, w, 7,
         unit=unit,
@@ -330,7 +345,7 @@ browser_panels = [
     timeseries(
         "Vitals rating mix (LCP)",
         [target(
-            'sum by (rating) (rate(browser_web_vital_lcp_milliseconds_count{service_name=~"$service"}[5m]))',
+            'sum by (rating) (rate(browser_web_vital_lcp_milliseconds_count{service_name=~"$service", deployment_environment=~"$environment"}[5m]))',
             "{{rating}}")],
         0, 12, 8, 7,
         desc="Google's own good / needs-improvement / poor buckets, as a share of page views. "
@@ -342,7 +357,7 @@ browser_panels = [
         "Page load and fetch latency p95",
         [target(
             'histogram_quantile(0.95, sum by (le, span_name) '
-            '(rate(traces_spanmetrics_latency_bucket{service=~"$service"}[5m])))',
+            '(rate(traces_spanmetrics_latency_bucket{service=~"$service", deployment_environment=~"$environment"}[5m])))',
             "{{span_name}}")],
         8, 12, 8, 7,
         unit="s",
@@ -353,7 +368,7 @@ browser_panels = [
     timeseries(
         "JS error rate",
         [target(
-            'sum(count_over_time({service_name=~"$service"} | severity_text="ERROR" [5m]))',
+            'sum(count_over_time({service_name=~"$service", deployment_environment=~"$environment"} | severity_text="ERROR" [5m]))',
             "errors", LOKI)],
         16, 12, 8, 7,
         desc="Uncaught errors and unhandled promise rejections. severity_text is STRUCTURED "
@@ -361,7 +376,7 @@ browser_panels = [
     ),
     logs(
         "Browser errors",
-        '{service_name=~"$service"} | severity_text="ERROR"',
+        '{service_name=~"$service", deployment_environment=~"$environment"} | severity_text="ERROR"',
         0, 19, 24, 10,
         desc="Expand a line for exception.type, code.filepath, and trace_id. Where a trace_id is "
              "present, the error is joined to the request that caused it.",
@@ -376,7 +391,7 @@ DASHBOARDS = [
     ("browser-rum.json", dashboard(
         "browser-rum", "Browser (RUM)",
         "Real user monitoring: Core Web Vitals, page-load timings, and JS errors from the browser.",
-        ["observability", "browser", "rum"], browser_panels, [SERVICE_VAR], time_from="now-6h")),
+        ["observability", "browser", "rum"], browser_panels, [SERVICE_VAR, ENVIRONMENT_VAR], time_from="now-6h")),
 ]
 
 if __name__ == "__main__":

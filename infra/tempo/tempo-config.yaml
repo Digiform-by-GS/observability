@@ -67,6 +67,16 @@ overrides:
             - messaging.system
             - messaging.destination.name
             - messaging.operation.type
+            # Resource attribute, not a span attribute. Without it every
+            # environment of a service collapses into one series: costwise-frontend
+            # in development and in staging become indistinguishable on every RED
+            # dashboard, even though the apps set the attribute correctly and it is
+            # visible on the raw traces. Setting deployment.environment per
+            # deployment only pays off once it reaches the metrics.
+            #
+            # This does not multiply series - a given service reports one
+            # environment - it disambiguates ones that were previously merged.
+            - deployment.environment
 
 usage_report:
   reporting_enabled: false
