@@ -189,6 +189,18 @@ and passed positionally they silently record nothing.
 `instrumentation-user-interaction` is deliberately excluded — it names spans
 after event type plus DOM target, which is unbounded.
 
+`deployment.environment` is a **span-metrics dimension** (`tempo-config.yaml`), which is what lets
+the Environment variable work. Without it, one service deployed to dev and staging collapses into a
+single series on every RED dashboard even though both apps set the attribute correctly and it is
+plainly visible on the raw traces. It does not multiply series — a service reports one environment
+— it separates ones that were previously merged.
+
+Note the collector `insert`s `deployment.environment` from `DEPLOYMENT_ENVIRONMENT` when an app does
+not set its own, so **every** series carries the label; an app that sets it wins. That means services
+relying on the collector's value all share one environment name (`shared-dev` on the platform) while
+apps that set their own report something more specific — worth knowing before reading the variable's
+dropdown as ground truth.
+
 ### Signal-specific label gotchas
 - Tempo's metrics generator labels spanmetrics/service-graph series **`service`**, *not* `service_name`.
   Querying `sum by (service_name)` silently collapses every service into one unlabeled series.
@@ -352,7 +364,9 @@ nothing. Probe bindability with a throwaway `net.createServer()` script rather t
 
 ## Grafana Quick Navigation
 
-- **Dashboards → Observability → Observability Overview**: RED metrics + log stream
+- **Dashboards → Observability → Observability Overview**: RED metrics + log stream, filtered by
+  the **Service** and **Environment** variables at the top. Blast Radius deliberately has no
+  service filter — it answers "what else is affected", which a filter would defeat
 - **Dashboards → Observability → Blast Radius**: failing dependency edges, impacted services, and a
   `trace_id` textbox that pulls one request's logs from every service it touched
 - **Dashboards → Observability → Platform Health**: the stack's own health — component up/down,
