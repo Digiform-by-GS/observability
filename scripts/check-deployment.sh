@@ -95,12 +95,22 @@ say "=== running containers vs config on disk ==="
 # A bind-mounted config edited after a container started is live on disk and
 # stale in the process. `docker compose restart` does not fix a port change
 # either - only a recreate does - so this reports rather than guesses.
-CONFIGS="docker-compose.yml docker-compose.platform.yml
-infra/otel-collector/config.platform.yaml
-infra/grafana/provisioning/dashboards
-infra/grafana/provisioning/alerting"
+# Per service, ONLY the paths that service actually reads. Comparing one shared
+# list against every container reported the collector as drifted because a
+# Grafana dashboard had changed - a false positive, and the kind that teaches
+# people to ignore the check. A drift report is worth nothing if it cries wolf.
+configs_for() {
+  case "$1" in
+    otel-collector) echo "docker-compose.yml docker-compose.platform.yml infra/otel-collector/config.platform.yaml" ;;
+    grafana)        echo "docker-compose.yml docker-compose.platform.yml infra/grafana/grafana.ini infra/grafana/provisioning" ;;
+    tempo)          echo "docker-compose.yml docker-compose.platform.yml infra/tempo/tempo-config.yaml" ;;
+    loki)           echo "docker-compose.yml docker-compose.platform.yml infra/loki/loki-config.yaml" ;;
+    mimir)          echo "docker-compose.yml docker-compose.platform.yml infra/mimir/mimir-config.yaml" ;;
+    *)              echo "docker-compose.yml docker-compose.platform.yml" ;;
+  esac
+}
 
-for svc in otel-collector grafana; do
+for svc in otel-collector grafana tempo loki mimir; do
   STARTED="$(docker inspect "$svc" --format '{{.State.StartedAt}}' 2>/dev/null)"
   if [ -z "$STARTED" ]; then
     say "  [skip]  container '$svc' not running"
@@ -108,7 +118,7 @@ for svc in otel-collector grafana; do
   fi
   STARTED_EPOCH="$(date -d "$STARTED" +%s 2>/dev/null || echo 0)"
   NEWER=""
-  for path in $CONFIGS; do
+  for path in $(configs_for "$svc"); do
     [ -e "$path" ] || continue
     MTIME="$(find "$path" -newermt "@$STARTED_EPOCH" -print -quit 2>/dev/null)"
     [ -n "$MTIME" ] && NEWER="$NEWER $path"
