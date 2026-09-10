@@ -79,6 +79,42 @@ log.error({ err: { message: e.message, stack: e.stack } }, 'checkout failed');
   shadows the real one.
 - Extra fields are searchable per-request in the log store without being
   indexed, so high-cardinality ids in fields are safe (unlike in metrics).
+### The HTTP access logger is the usual reason a Node service has no logs
+
+`morgan('combined')`, `app.use(logger())`, or a bare `console.log` in a
+middleware all write to stdout and never reach the platform, so the service ends
+up with traces and metrics but **zero logs**. Grep for `morgan` and `console.log`
+when onboarding.
+
+**Recommend, do not silently replace** — changing log format is a behaviour
+change and something may be parsing those lines. Put this in the PR body:
+
+```ts
+import { getLogger } from '@digiform-by-gs/observability';
+const log = getLogger();
+
+// Replaces morgan(...). Same one line per request, but correlated: emitted
+// inside the request, so it carries trace_id automatically.
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    log.info({
+      http_method: req.method,
+      // req.route?.path is the TEMPLATE ('/orders/:id'); req.originalUrl is the
+      // concrete URL and is unbounded - same trap as span names.
+      http_route: req.route?.path ?? req.baseUrl ?? 'unmatched',
+      http_status: res.statusCode,
+      duration_ms: Date.now() - start,
+    }, 'http request');
+  });
+  next();
+});
+```
+
+Register it **after** `initObservability()` has run and after the auto
+instrumentation is active, and remove `morgan` when adopting it — keeping both
+gives two records per request, one correlated and one not.
+
 - If the service already uses pino, replacing the logger instance with
   `getLogger()` preserves call sites. If it uses console.log/winston, replace
   incrementally — start with the request-path call sites.
