@@ -220,6 +220,78 @@ Two conventions:
 - Constant messages, identifiers in fields — never `fmt.Sprintf` an id into
   the message.
 
+### The framework access logger is the usual reason a service has no logs
+
+Most Go services already log every request through their framework's access-log
+middleware, straight to stdout:
+
+```go
+handlers.LoggingHandler(os.Stdout, router)   // gorilla
+gin.Logger()                                 // gin
+middleware.Logger                            // chi
+e.Use(middleware.Logger())                   // echo
+```
+
+None of these reach the platform. They write Apache-format text to stdout, and
+the OTLP log bridge never sees them — so the service ends up with traces and
+metrics but **zero logs**, which looks like a platform fault and is not one.
+Grep for these when onboarding; finding one is the single most likely reason a
+Go service will report no logs.
+
+**Do not silently replace it.** Changing a service's log format is a behaviour
+change, not instrumentation, and someone may be parsing those lines. Put the
+replacement in the PR body as a recommendation and let the owner decide:
+
+```go
+// Replaces handlers.LoggingHandler(os.Stdout, router). Same one line per
+// request, but through the correlated logger, so every line carries trace_id
+// and joins its trace in Grafana.
+type statusRecorder struct {
+    http.ResponseWriter
+    status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+    r.status = code
+    r.ResponseWriter.WriteHeader(code)
+}
+
+func accessLog(logger *slog.Logger) mux.MiddlewareFunc {
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            start := time.Now()
+            rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+            next.ServeHTTP(rec, r)
+
+            // The route TEMPLATE, never r.URL.Path - the same unbounded-value
+            // problem as span names, one layer down.
+            tmpl := ""
+            if route := mux.CurrentRoute(r); route != nil {
+                tmpl, _ = route.GetPathTemplate()
+            }
+
+            // InfoContext with the REQUEST's context. That is the only reason
+            // this record carries trace_id; logger.Info would compile, run, and
+            // silently produce an orphan.
+            logger.InfoContext(r.Context(), "http request",
+                slog.String("http_method", r.Method),
+                slog.String("http_route", tmpl),
+                slog.Int("http_status", rec.status),
+                slog.Duration("duration", time.Since(start)),
+            )
+        })
+    }
+}
+```
+
+Two ordering rules to state alongside it:
+
+- **Register it AFTER the OTel middleware.** The span is put into the request
+  context by the tracing middleware; a logger running before it has no span to
+  correlate to and every line arrives without a trace_id.
+- **Remove the old handler when adopting this.** Leaving both gives two records
+  per request — one correlated, one not — and doubles log volume.
+
 Recommend adding `sloglint` to the client's linter so CI catches bare calls
 (the compiler never will):
 

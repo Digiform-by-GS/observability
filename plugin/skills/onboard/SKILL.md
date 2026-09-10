@@ -163,6 +163,38 @@ The one-paragraph version:
   ~8 lines in `main()` (init + deferred shutdown), one middleware line on the
   router, switch log calls to the `...Context(ctx, ...)` variants.
 
+## Step 3b — Check how the service already logs, and recommend the fix
+
+A service can end up with traces and metrics but **zero logs**, which reads as a
+platform fault and is not one. The usual cause is an HTTP access logger writing
+to stdout, which the OTLP bridge never sees:
+
+```
+gorilla   handlers.LoggingHandler(os.Stdout, ...)
+gin       gin.Logger()
+chi       middleware.Logger
+echo      middleware.Logger()
+express   morgan(...)  /  console.log in a middleware
+```
+
+Grep for these. If you find one, **do not replace it yourself** — changing a
+service's log format is a behaviour change, not instrumentation, and something
+may be parsing those lines.
+
+Instead, put a ready-to-paste replacement in the PR body, taken from the
+per-stack reference ([go.md](references/go.md), [node.md](references/node.md)),
+and say plainly what it buys and what it costs:
+
+> Your access logger writes to stdout, so these lines never reach the platform
+> and the service will show traces and metrics but no logs. The snippet below
+> replaces it with the correlated logger — same one line per request, plus a
+> `trace_id` that joins each line to its trace. It changes your log format, so
+> it is your call. Register it after the OTel middleware, and remove the old
+> handler or you will get two records per request.
+
+Say so even when you change nothing: "logs are not wired, here is why, here is
+the fix" is a useful result. Silence reads as "logging works".
+
 ## Step 4 — Verify
 
 After the edits, run the **verify** skill (same plugin). Do not declare
@@ -221,3 +253,6 @@ looks unusual. These rules survive deviation only if you understand them:
   from the platform.
 - The user knows their Grafana URL and that their service appears under its
   `OTEL_SERVICE_NAME`.
+- If the service logs through a framework access logger, the PR body says so and
+  carries the replacement snippet. A service with traces and metrics but no logs
+  is a half-onboarded service, and the owner should know which half.
