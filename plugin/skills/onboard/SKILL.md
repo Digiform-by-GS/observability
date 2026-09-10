@@ -94,7 +94,7 @@ Only one variable is mandatory:
 | `OTEL_SERVICE_NAME` | **Yes** | Logical service name — see rules below |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Recommended | `otlp_http` from platform.json |
 | `OTEL_RESOURCE_ATTRIBUTES` | Recommended | `team=<the user's team>` |
-| `OTEL_DEPLOYMENT_ENVIRONMENT` | Optional | `development` / `staging` / `production` |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | **Yes, and different per deployment** | `development` / `staging` / `production` — see the promotion warning below |
 | `OTEL_SERVICE_VERSION` | Optional | Release tag like `1.4.2` — **never a git SHA** (each distinct value mints a full new set of metric series) |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Only if the platform requires auth | `Authorization=Bearer <key>` — the operator issues the key; keep it in `.env`/secrets, never in platform.json |
 
@@ -107,6 +107,40 @@ emits — every dashboard, log query, and trace search keys on it):
 - Warn the user explicitly: **renaming it later splits their history into two
   unrelated services.** Pick once.
 - Never a pod name, instance id, or anything per-deployment.
+
+**`OTEL_DEPLOYMENT_ENVIRONMENT` is the one value that MUST change on
+promotion.** Everything else in this table is the same in every environment;
+this one is not, and it is the only variable a deploy can get wrong while
+looking completely healthy.
+
+Two ways it goes wrong, neither of which raises an error:
+
+- **Left unset.** The platform's collector stamps its own value on anything that
+  does not set one, so every service silently reports the *same* environment.
+  The Environment filter in Grafana then shows one value covering everything and
+  filtering by it hides nothing — it looks like it works.
+- **Not updated on promotion.** Promoting an image from dev to production does
+  not carry this value with it. If the production deployment reuses the dev
+  configuration, **production reports itself as development**: real user traffic
+  lands under a name people treat as safe to ignore, and production looks idle.
+
+This is not hypothetical. On this platform two services in the *same* namespace
+currently report different environments — one sets its own, the other inherits
+the collector's default — so the dropdown offers two values for one environment
+and either choice hides half the stack.
+
+So: **it belongs in the deployment configuration, never in the image.** A
+Kubernetes `env:` block, a Helm value, a secret manager entry — whatever the
+target already uses for per-environment config. If it is baked in at build time,
+one image cannot serve two environments and promotion silently mislabels.
+
+**Say this to whoever deploys the change**, in the PR body, in these words or
+close to them:
+
+> `OTEL_DEPLOYMENT_ENVIRONMENT` must be set per environment. When promoting this
+> to production, update it to `production` — the image is identical, only this
+> value differs. If it is missed, production telemetry will be labelled as
+> whatever the previous environment was.
 
 **`OTEL_RESOURCE_ATTRIBUTES=team=<x>`** matters on a shared platform: it is how
 telemetry gets attributed when several teams share the backend. Ask for the
@@ -179,6 +213,9 @@ looks unusual. These rules survive deviation only if you understand them:
 
 - Dependency added, start command / main() wired per the reference.
 - Env vars set with a stable `OTEL_SERVICE_NAME` and the platform endpoint.
+- `OTEL_DEPLOYMENT_ENVIRONMENT` set in the DEPLOYMENT config for this
+  environment, and the PR body tells whoever promotes it that this one value
+  must change for production.
 - `.observability/platform.json` present and committed.
 - The verify skill passes: trace, correlated log, and metrics all read back
   from the platform.

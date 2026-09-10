@@ -99,6 +99,11 @@ trace my business logic".
 
 Set per the shared contract in SKILL.md Step 2. Node specifics:
 - `OTEL_DEPLOYMENT_ENVIRONMENT` falls back to `NODE_ENV`, then `development`.
+  That fallback is a trap on promotion: a production container whose `NODE_ENV`
+  is unset reports itself as `development` and nothing errors. Set it
+  explicitly in the deployment config — see the promotion warning in SKILL.md.
+  Note `@vercel/otel` (the Next.js path) reads no such fallback at all, so
+  without an explicit value the platform's collector labels it instead.
 - `OTEL_SERVICE_VERSION` falls back to `npm_package_version`.
 - Logger level is the `logLevel` option (inline init only), not an env var.
 
