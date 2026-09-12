@@ -85,6 +85,61 @@ Read the matching reference before editing anything:
 - Go: [references/go.md](references/go.md)
 - Browser / RUM: [references/browser.md](references/browser.md)
 
+## Step 1b — Is it ALREADY onboarded? Check before changing anything
+
+Grep before you edit:
+
+```
+observability.New(        initObservability(
+registerOTel(             initBrowserObservability(
+.observability/platform.json
+```
+
+If any of these exist, this is **not a fresh onboarding**. The service already
+reports, and your job changes completely: find what is MISSING, do not re-apply
+the parameters you were handed.
+
+### Never change an existing OTEL_SERVICE_NAME. Not ever.
+
+This is the one rule in this skill with no exceptions.
+
+The service name is the identity of everything the service has ever emitted.
+Renaming it does not relabel history — it **splits it into two unrelated
+services**: every existing trace, metric and log stays under the old name, the
+dashboards go quiet, and the alerts that watched it never fire again. Nothing
+errors. It looks like the service stopped existing.
+
+So if the name you were given differs from the one already in the repository:
+
+- **Keep the repository's name.** It is the source of truth, not the form.
+- Say so plainly in your summary: "this service already reports as `<existing>`;
+  I did not rename it to `<requested>`, because renaming splits its history."
+- Change nothing else about it.
+
+This has already gone wrong in production here. An operator typed the wrong name
+into a form, the agent dutifully rewrote `WithServiceName("costwise-backend")`
+to `WithServiceName("frontend")` across four files, and opened a merge request
+proposing to orphan a live service's entire history. Note also that in the Go
+and Node wrappers the **code option beats the environment variable**, so an
+in-code rename silently overrides whatever the deployment sets.
+
+### What to do instead: report the gaps
+
+Work through what is present and what is not, then act only on the gaps:
+
+| Check | If missing |
+|---|---|
+| Logs reaching the platform | Usually the access logger — see Step 3b |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` set per deployment | See Step 2 |
+| Router middleware naming spans by route template | See the per-stack reference |
+| Outbound HTTP propagating `traceparent` | See the per-stack reference |
+| Browser/RUM, if it serves a UI | See references/browser.md |
+
+If everything is already in place, **report `no_changes` and say what you
+checked**. "Already onboarded, here is what I verified, here is the one gap I
+found" is a genuinely useful result. Inventing a diff to look productive is not —
+and a rename is the most damaging way to do it.
+
 ## Step 2 — Environment variables (the shared contract, both stacks)
 
 Only one variable is mandatory:
@@ -243,6 +298,9 @@ looks unusual. These rules survive deviation only if you understand them:
 
 ## Done looks like
 
+- If the service was ALREADY onboarded: its existing `OTEL_SERVICE_NAME` is
+  untouched, and the summary says which gaps you found rather than what you
+  re-applied.
 - Dependency added, start command / main() wired per the reference.
 - Env vars set with a stable `OTEL_SERVICE_NAME` and the platform endpoint.
 - `OTEL_DEPLOYMENT_ENVIRONMENT` set in the DEPLOYMENT config for this
