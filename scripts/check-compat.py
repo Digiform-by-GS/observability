@@ -259,6 +259,40 @@ for cfg in ("infra/otel-collector/config.yaml", "infra/otel-collector/config.pla
         f"{cfg} does not prune browser metric labels - user_agent.original alone can exhaust the series cap",
     )
 
+# --- The agent UI states supported versions to developers -------------------
+# It is the first thing someone reads before submitting a repo, so a stale claim
+# there sends them to onboard a runtime that will not work - and unlike the docs,
+# nobody re-reads a form. Tie it to the same source as everything else.
+ui = read("services/onboarding-agent/src/public/index.html")
+
+check(
+    pkg["engines"]["node"].replace("|", "||").replace("||||", "||") in ui.replace("&gt;", ">").replace("&lt;", "<")
+    or pkg["engines"]["node"] in ui.replace("&gt;", ">").replace("&lt;", "<"),
+    "the agent UI does not state the Node engines floor %r" % pkg["engines"]["node"],
+)
+check(
+    go_directive in ui,
+    "the agent UI does not state the Go toolchain floor %s" % go_directive,
+)
+check(
+    compat["nextjs"]["minNext"] in ui,
+    "the agent UI does not state the minimum Next.js version %s" % compat["nextjs"]["minNext"],
+)
+# The three things a developer most needs to know before submitting, and the
+# three we have actually got wrong in practice.
+check(
+    "Already instrumented" in ui,
+    "the agent UI must tell developers what happens when a repo is already onboarded",
+)
+check(
+    "splits it in two" in ui or "splits its history" in ui,
+    "the agent UI must warn that renaming a live service splits its history",
+)
+check(
+    "nothing to onboard" in ui,
+    "the agent UI must say that an unsupported repo reports 'nothing to onboard' rather than guessing",
+)
+
 # --- Report -----------------------------------------------------------------
 if FAILURES:
     print("compat drift detected:\n", file=sys.stderr)
