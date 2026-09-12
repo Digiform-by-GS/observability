@@ -8,28 +8,43 @@
   :root {
     --bg: #ffffff; --fg: #1a1a1a; --muted: #666; --line: #e2e2e2;
     --accent: #2563eb; --ok: #15803d; --bad: #b91c1c; --card: #fafafa;
+    --warn: #b45309; --warnbg: #fffbeb;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#131313; --fg:#ececec; --muted:#9a9a9a; --line:#2e2e2e;
-            --accent:#60a5fa; --ok:#4ade80; --bad:#f87171; --card:#1c1c1c; }
+            --accent:#60a5fa; --ok:#4ade80; --bad:#f87171; --card:#1c1c1c;
+            --warn:#fbbf24; --warnbg:#2a2213; }
   }
   * { box-sizing: border-box; }
   body { margin:0; padding:2rem 1rem; background:var(--bg); color:var(--fg);
          font:15px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif; }
-  main { max-width: 760px; margin: 0 auto; }
+  main { max-width: 780px; margin: 0 auto; }
   h1 { font-size:1.5rem; margin:0 0 .25rem; }
-  p.sub { color:var(--muted); margin:0 0 1.75rem; }
-  form { display:grid; gap:.9rem; padding:1.25rem; border:1px solid var(--line);
+  p.sub { color:var(--muted); margin:0 0 1.25rem; }
+  form { display:grid; gap:1.15rem; padding:1.25rem; border:1px solid var(--line);
          border-radius:10px; background:var(--card); }
   label { display:grid; gap:.3rem; font-size:.85rem; color:var(--muted); }
+  .lbl { font-weight:600; color:var(--fg); font-size:.9rem; }
   input, select { padding:.55rem .7rem; border:1px solid var(--line); border-radius:6px;
                   background:var(--bg); color:var(--fg); font:inherit; font-size:.9rem; }
-  .row { display:grid; grid-template-columns:1fr 1fr; gap:.9rem; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:1.15rem; }
   @media (max-width:560px){ .row { grid-template-columns:1fr; } }
   button { padding:.6rem 1.1rem; border:0; border-radius:6px; background:var(--accent);
            color:#fff; font:inherit; font-weight:600; cursor:pointer; justify-self:start; }
   button:disabled { opacity:.55; cursor:progress; }
-  .hint { font-size:.78rem; color:var(--muted); }
+  .hint { font-size:.78rem; color:var(--muted); font-weight:400; }
+  .hint code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.95em; }
+  .warn { font-size:.78rem; color:var(--warn); background:var(--warnbg);
+          border-left:3px solid var(--warn); padding:.45rem .6rem; border-radius:0 4px 4px 0; }
+  details.support { margin:0 0 1.5rem; border:1px solid var(--line); border-radius:10px;
+                    background:var(--card); padding:.75rem 1rem; }
+  details.support summary { cursor:pointer; font-weight:600; font-size:.9rem; }
+  details.support table { width:100%; border-collapse:collapse; margin:.85rem 0 .25rem; font-size:.83rem; }
+  details.support th, details.support td { text-align:left; padding:.35rem .5rem;
+                                           border-bottom:1px solid var(--line); vertical-align:top; }
+  details.support th { color:var(--muted); font-weight:600; }
+  details.support td code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.95em; }
+  details.support p { font-size:.8rem; color:var(--muted); margin:.6rem 0 0; }
   #jobs { margin-top:2rem; display:grid; gap:.75rem; }
   .job { border:1px solid var(--line); border-radius:9px; padding:.9rem 1rem; background:var(--card); }
   .job header { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
@@ -49,41 +64,92 @@
 <body>
 <main>
   <h1>Onboarding Agent</h1>
-  <p class="sub">Submit a GitHub or GitLab repository. An agent instruments it for the observability platform and returns a patch.</p>
+  <p class="sub">Submit a GitHub or GitLab repository. An agent instruments it for the observability platform and returns a patch, or opens a pull/merge request.</p>
+
+  <details class="support">
+    <summary>What this agent supports</summary>
+
+    <table>
+      <tr><th>Stack</th><th>Requires</th><th>What you get</th></tr>
+      <tr>
+        <td><strong>Node.js</strong></td>
+        <td><code>^18.19.0 || &gt;=20.6.0</code><br><span class="hint">ESM only — needs <code>"type": "module"</code></span></td>
+        <td>Traces, metrics, and logs correlated to their trace. Express, Fastify, plain HTTP.</td>
+      </tr>
+      <tr>
+        <td><strong>Go</strong></td>
+        <td><code>1.25+</code><br><span class="hint">required by OpenTelemetry v1.44</span></td>
+        <td>Traces, metrics, and <code>slog</code> logs carrying trace context. Routers: chi, gin, echo, gorilla/mux.</td>
+      </tr>
+      <tr>
+        <td><strong>Next.js</strong></td>
+        <td><code>15+</code></td>
+        <td>Server-side rendering traces only. <strong>No logs</strong> — the Next integration does not emit them.</td>
+      </tr>
+      <tr>
+        <td><strong>Browser / RUM</strong></td>
+        <td>any modern browser</td>
+        <td>Page-load traces, Core Web Vitals, JS errors. Needs a browser ingest endpoint on the platform.</td>
+      </tr>
+    </table>
+
+    <p><strong>Not supported:</strong> Python, Java, Ruby, PHP, .NET. If the repository is none of the above, the agent will report "nothing to onboard" rather than guess — that is a correct result, not a failure.</p>
+    <p><strong>Already instrumented?</strong> Submit it anyway. The agent detects existing instrumentation, leaves your service name alone, and reports what is missing instead of redoing the work.</p>
+  </details>
 
   <form id="f">
-    <label>Repository URL
-      <input name="repoUrl" placeholder="https://gitlab.com/acme/orders" required>
+    <label>
+      <span class="lbl">Repository URL</span>
+      <span class="hint">The clone URL. The agent reads the default branch unless you set one below.</span>
+      <input name="repoUrl" placeholder="https://gitlab.com/acme/orders.git" required>
     </label>
+
     <div class="row">
-      <label>Service name <span class="hint">optional — the agent picks one if blank</span>
+      <label>
+        <span class="lbl">Service name</span>
+        <span class="hint">The identity of everything this service emits — every dashboard, trace search and log query keys on it. One stable name per service (<code>orders</code>, <code>checkout-api</code>), never a pod name and never per-environment.</span>
         <input name="serviceName" placeholder="orders">
+        <span class="warn"><strong>Leave blank if the repo is already onboarded.</strong> The agent keeps the existing name. Renaming a live service does not relabel its history — it splits it in two, and everything recorded under the old name is orphaned.</span>
       </label>
-      <label>Team <span class="hint">optional</span>
-        <input name="team" placeholder="payments">
+      <label>
+        <span class="lbl">Team</span>
+        <span class="hint">Who owns the service, not what it is called. Used to attribute telemetry when several teams share the platform. Optional.</span>
+        <input name="team" placeholder="platform">
       </label>
     </div>
+
     <div class="row">
-      <label>Provider <span class="hint">auto-detected; set it only for self-hosted</span>
+      <label>
+        <span class="lbl">Provider</span>
+        <span class="hint">Detected from the URL. Set it only for self-hosted GitHub or GitLab.</span>
         <select name="provider">
           <option value="">Auto-detect</option>
           <option value="github">GitHub</option>
           <option value="gitlab">GitLab</option>
         </select>
       </label>
-      <label>Delivery
+      <label>
+        <span class="lbl">Delivery</span>
+        <span class="hint"><strong>Patch</strong> clones read-only and gives you a diff to review — nothing is written to your repo. <strong>PR/MR</strong> pushes a branch and opens the request, and needs a token.</span>
         <select name="mode">
           <option value="patch">Patch (read-only access)</option>
           <option value="pr">Open a pull/merge request</option>
         </select>
       </label>
-      <label>Base branch <span class="hint">optional</span>
-        <input name="baseBranch" placeholder="main">
-      </label>
     </div>
-    <label id="tokWrap" hidden>Access token <span class="hint">needs write access; used for this run only, never stored</span>
+
+    <label>
+      <span class="lbl">Base branch</span>
+      <span class="hint">Branch to start from, and the target of the PR/MR. Leave blank to use the repository's default branch — worth checking, since many repos default to <code>development</code> rather than <code>main</code>.</span>
+      <input name="baseBranch" placeholder="leave blank for the repo default">
+    </label>
+
+    <label id="tokWrap" hidden>
+      <span class="lbl">Access token</span>
+      <span class="hint">Needs write access to push a branch and open the request — GitHub <code>repo</code> scope, or GitLab <code>api</code>. Used for this run only and never stored. Not needed for Patch delivery.</span>
       <input name="gitToken" type="password" autocomplete="off" placeholder="github_pat_… or glpat-…">
     </label>
+
     <button id="go">Onboard</button>
   </form>
 
