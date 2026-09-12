@@ -81,7 +81,12 @@ Use the observability-onboard plugin's 'onboard' skill and follow it exactly.
 
 Context for this run:
 - .observability/platform.json is already present; do not ask for endpoints.
-- Service name: ${SERVICE_NAME:-choose one from the repository and say which you chose and why}
+- Requested service name: ${SERVICE_NAME:-none given; choose one from the repository and say which you chose and why}
+  This is a REQUEST, not an instruction. If the repository already sets a
+  service name, KEEP THE REPOSITORY ONE and ignore this value - renaming a
+  live service splits its history in two and orphans every existing trace,
+  metric and log. Say in your summary that you kept the existing name and
+  why. Only use the value above when the repository has no name yet.
 - Team attribute: ${TEAM:-omit if unknown}
 
 Constraints for this environment:
