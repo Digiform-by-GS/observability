@@ -50,6 +50,7 @@ Required in `.env`:
 | `ANTHROPIC_API_KEY` | the agent's credentials; the service refuses to start without it |
 | `PUBLIC_OTLP_ENDPOINT` | baked into every generated `platform.json` — must be the address a **client** can reach, not a container name |
 | `PUBLIC_GRAFANA_URL` | same |
+| `PUBLIC_OTLP_BROWSER_ENDPOINT` | optional, but **browser/RUM onboarding does nothing without it**. The CORS-enabled receiver on `4319`, not the service receiver on `4318`, and it must be reachable from a user's browser. Absent, the agent is instructed to onboard the server side only — quietly, with no error |
 | `ONBOARD_API_KEY` | shared secret for `POST`. Optional on a trusted LAN, **required** anywhere else, because a submitted job can carry a customer's repo token |
 | `ONBOARD_BUDGET_USD` | per-job ceiling, default `2.00` |
 | `ONBOARD_GITLAB_HOSTS` | comma-separated self-hosted GitLab hostnames. `gitlab.com`/`github.com` need no configuration; other hosts must be listed here or the caller must send `provider` |

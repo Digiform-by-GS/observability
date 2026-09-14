@@ -3,7 +3,14 @@ import { createReadStream } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { JobStore, type JobRequest, type DeliveryMode } from './jobs.js';
+import {
+  JobStore,
+  DEPLOYMENT_CONFIGS,
+  type JobRequest,
+  type DeliveryMode,
+  type DeploymentConfig,
+  type Signal,
+} from './jobs.js';
 import { parseRepoUrl, requestNoun } from './providers.js';
 import { runJob, artifactDir, type RunnerConfig } from './runner.js';
 
@@ -24,6 +31,9 @@ const cfg: RunnerConfig = {
   otlpEndpoint: required('OTLP_ENDPOINT'),
   grafanaUrl: required('GRAFANA_URL'),
   ...(process.env.PYROSCOPE_URL ? { pyroscopeUrl: process.env.PYROSCOPE_URL } : {}),
+  ...(process.env.OTLP_BROWSER_ENDPOINT
+    ? { otlpBrowserEndpoint: process.env.OTLP_BROWSER_ENDPOINT }
+    : {}),
   anthropicApiKey: required('ANTHROPIC_API_KEY'),
   budgetUsd: process.env.BUDGET_USD ?? '2.00',
   timeoutMs: Number(process.env.JOB_TIMEOUT_MS ?? 15 * 60 * 1000),
@@ -43,7 +53,7 @@ const GITLAB_HOSTS = (process.env.GITLAB_HOSTS ?? '')
 // Derived, not configured: the platform's own addresses are already known from
 // the endpoints this service hands to clients, so there is nothing to keep in
 // sync and no way to forget.
-const SELF_HOSTS = [cfg.otlpEndpoint, cfg.grafanaUrl, cfg.pyroscopeUrl]
+const SELF_HOSTS = [cfg.otlpEndpoint, cfg.grafanaUrl, cfg.pyroscopeUrl, cfg.otlpBrowserEndpoint]
   .filter((u): u is string => Boolean(u))
   .flatMap((u) => {
     try {
@@ -52,6 +62,45 @@ const SELF_HOSTS = [cfg.otlpEndpoint, cfg.grafanaUrl, cfg.pyroscopeUrl]
       return [];
     }
   });
+
+/**
+ * Free text that ends up interpolated into the agent's prompt — inside the
+ * instruction block, on a run with permissions bypassed. Collapsing newlines is
+ * what stops a value opening an instruction paragraph of its own. run-job.sh
+ * repeats this for a service.json committed by hand; both layers are cheap.
+ */
+function oneLine(v: unknown, max: number): string {
+  return String(v).replace(/[\r\n\t]+/g, ' ').trim().slice(0, max);
+}
+
+/**
+ * A CORS allowlist takes an origin, not a URL, so store what the operator will
+ * actually paste. Anything unparseable is dropped rather than passed through —
+ * a malformed origin in the PR body is worse than none, because someone will
+ * try to use it.
+ */
+function toOrigin(v: unknown): string | undefined {
+  try {
+    const u = new URL(oneLine(v, 256));
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Traces and metrics are not independent choices — they come from one SDK init,
+ * so there is no code path that yields one without the other. Assembling the
+ * list here rather than trusting the client keeps that invariant true even for
+ * a hand-crafted request, and keeps it consistent with what the agent is asked
+ * to report back.
+ */
+function resolveSignals(body: { wantLogs?: unknown; wantRum?: unknown }): Signal[] {
+  const out: Signal[] = ['traces', 'metrics'];
+  if (body.wantLogs) out.push('logs');
+  if (body.wantRum) out.push('rum');
+  return out;
+}
 
 const store = new JobStore();
 const app = express();
@@ -99,7 +148,11 @@ async function drain(): Promise<void> {
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
 app.post('/api/jobs', (req, res) => {
-  const body = req.body as Partial<JobRequest> & { provider?: string };
+  const body = req.body as Partial<JobRequest> & {
+    provider?: string;
+    wantLogs?: unknown;
+    wantRum?: unknown;
+  };
 
   const parsed = parseRepoUrl(String(body.repoUrl ?? ''), {
     gitlabHosts: GITLAB_HOSTS,
@@ -124,6 +177,19 @@ app.post('/api/jobs', (req, res) => {
     ...(body.team ? { team: String(body.team).slice(0, 64) } : {}),
     ...(body.baseBranch ? { baseBranch: String(body.baseBranch).slice(0, 128) } : {}),
     ...(body.gitToken ? { gitToken: String(body.gitToken) } : {}),
+    // Coerced to a safe value, never rejected — same as `mode` above. A
+    // questionnaire that 400s on a typo is a questionnaire people route around,
+    // and every one of these fields is optional by design: unanswered must
+    // behave exactly as it did before the form existed.
+    deploymentConfig: DEPLOYMENT_CONFIGS.includes(body.deploymentConfig as DeploymentConfig)
+      ? (body.deploymentConfig as DeploymentConfig)
+      : 'unknown',
+    ...(body.deploymentConfigLocation
+      ? { deploymentConfigLocation: oneLine(body.deploymentConfigLocation, 256) }
+      : {}),
+    ...(body.environment ? { environment: oneLine(body.environment, 32) } : {}),
+    signals: resolveSignals(body),
+    ...(toOrigin(body.appUrl) ? { appUrl: toOrigin(body.appUrl) as string } : {}),
   };
 
   const job = store.create(jobReq);

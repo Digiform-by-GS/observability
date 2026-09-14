@@ -9,6 +9,13 @@ export interface RunnerConfig {
   otlpEndpoint: string;
   grafanaUrl: string;
   pyroscopeUrl?: string;
+  /**
+   * The CORS-enabled receiver, on a different port from otlpEndpoint. Without
+   * it the skill's browser reference tells the agent to onboard the server side
+   * only — so leaving this unset does not fail loudly, it just makes RUM
+   * quietly unavailable on every run.
+   */
+  otlpBrowserEndpoint?: string;
   anthropicApiKey: string;
   budgetUsd: string;
   timeoutMs: number;
@@ -38,8 +45,12 @@ export function artifactDir(root: string, jobId: string): string {
  *  --network bridge  the job needs GitHub/npm/Anthropic, but must NOT be on the
  *                    platform's `obs` network. Nothing it clones should be able
  *                    to reach Loki/Tempo/Mimir directly.
- *  --read-only       plus explicit tmpfs; the clone lives in a tmpfs, artifacts
- *                    in the one bind mount.
+ *  --tmpfs /work     the clone lives in a tmpfs and dies with the container;
+ *                    artifacts go to the one bind mount. NOTE: the rootfs is
+ *                    NOT read-only — this comment used to claim `--read-only`,
+ *                    which was never in the args below. Adding it needs tmpfs
+ *                    mounts for $HOME and the npm/go caches first; until then,
+ *                    do not describe a control that is not here.
  *  --cap-drop ALL / no-new-privileges
  *  --pids-limit / --memory / --cpus  a runaway job must not take the platform
  *                    down with it; this box has 2 vCPU shared with the stack.
@@ -67,9 +78,20 @@ export async function runJob(
     BUDGET_USD: cfg.budgetUsd,
     ANTHROPIC_API_KEY: cfg.anthropicApiKey,
     ...(cfg.pyroscopeUrl ? { PYROSCOPE_URL: cfg.pyroscopeUrl } : {}),
+    ...(cfg.otlpBrowserEndpoint ? { OTLP_BROWSER_ENDPOINT: cfg.otlpBrowserEndpoint } : {}),
     ...(req.serviceName ? { SERVICE_NAME: req.serviceName } : {}),
     ...(req.team ? { TEAM: req.team } : {}),
     ...(req.baseBranch ? { BASE_BRANCH: req.baseBranch } : {}),
+    // The questionnaire. run-job.sh writes these into .observability/service.json
+    // and then reads them back OUT of that file, so a service.json the client
+    // committed wins over anything typed into the form.
+    ...(req.deploymentConfig ? { DEPLOYMENT_CONFIG: req.deploymentConfig } : {}),
+    ...(req.deploymentConfigLocation
+      ? { DEPLOYMENT_CONFIG_LOCATION: req.deploymentConfigLocation }
+      : {}),
+    ...(req.environment ? { ENVIRONMENT: req.environment } : {}),
+    ...(req.signals?.length ? { SIGNALS_REQUESTED: req.signals.join(',') } : {}),
+    ...(req.appUrl ? { APP_URL: req.appUrl } : {}),
     ...(req.gitToken ? { GIT_TOKEN: req.gitToken } : {}),
   };
 

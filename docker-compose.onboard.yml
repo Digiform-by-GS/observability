@@ -21,6 +21,11 @@ services:
       OTLP_ENDPOINT: ${PUBLIC_OTLP_ENDPOINT:?set PUBLIC_OTLP_ENDPOINT in .env}
       GRAFANA_URL: ${PUBLIC_GRAFANA_URL:?set PUBLIC_GRAFANA_URL in .env}
       PYROSCOPE_URL: ${PUBLIC_PYROSCOPE_URL:-}
+      # The CORS-enabled receiver (4319), NOT the service one (4318). Leaving it
+      # unset does not fail loudly: the browser reference tells the agent to
+      # onboard the server side only, so RUM is silently unavailable on every
+      # run. Must be reachable from a user's BROWSER, not just from the cluster.
+      OTLP_BROWSER_ENDPOINT: ${PUBLIC_OTLP_BROWSER_ENDPOINT:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
       RUNNER_IMAGE: ${RUNNER_IMAGE:-digiform/onboarding-runner:dev}
       # Per-job ceiling. A runaway agent costs money, not just time.
