@@ -248,10 +248,12 @@ ${ENV_RULE}
   format change; still SAY what logging they have today and what it would take.
   If 'rum' is absent do not add browser instrumentation at all.
 ${APP_URL_RULE}
-- BEFORE you finish you MUST write /out/signals.json - a file, outside the
-  repository, that does not appear in the patch. This is not optional and it is
-  not a summary: it is how coverage becomes checkable by something other than a
-  human reading prose. Exactly this shape, all four keys present:
+- BEFORE you finish you MUST write .observability/signals.json - a path INSIDE
+  this repository, relative to its root. This script reads it and then deletes
+  it, so it never reaches the patch; do not try to write anywhere outside the
+  repository. This is not optional and it is not a summary: it is how coverage
+  becomes checkable by something other than a human reading prose. Exactly this
+  shape, all four keys present:
       {
         \"traces\":  {\"state\": \"wired\",      \"reason\": \"cmd/main.go:22 observability.New()\"},
         \"metrics\": {\"state\": \"wired\",      \"reason\": \"same init as traces\"},
@@ -278,16 +280,40 @@ ${APP_URL_RULE}
 Finish with a short summary: which files you changed, the service name you
 used, and anything the client must do by hand.
 
-Then confirm you have written /out/signals.json. If for any reason you could
-not write that file, put the same JSON on a single line at the very end of your
-summary, prefixed exactly 'SIGNALS_JSON: ' - one line, not a fenced block."
+Then confirm you have written .observability/signals.json. If for any reason you
+could not write that file, put the same JSON on a single line at the very end of
+your summary, prefixed exactly 'SIGNALS_JSON: ' - one line, not a fenced block."
 
 set +e
 # The npm entries are deliberately narrow. A blanket Bash(npm:*) would permit
 # 'npm install', which executes postinstall scripts from the client's
-# dependency tree - remote code execution on this host. Only the two
-# non-executing forms are allowed, matched by their exact flag prefix, so the
-# agent can verify and lock its dependency choice without running anything.
+# dependency tree - arbitrary code from a stranger's dependencies, running in a
+# container that holds GIT_TOKEN and ANTHROPIC_API_KEY and has network egress.
+# Only the two non-executing forms are allowed, matched by their exact flag
+# prefix, so the agent can verify and lock its dependency choice without
+# running anything.
+#
+# DO NOT ADD --permission-mode bypassPermissions. It used to be here, and it
+# silently voided the allowlist above: bypassPermissions skips permission
+# evaluation entirely, and an allow-list is meaningless when nothing is being
+# checked. Probed directly on 2.1.270 - with the flag, a 'touch' ran while the
+# allowlist named only Read; without it, 'npm install express' was denied, no
+# node_modules appeared, and the denial was recorded in .permission_denials.
+# So for as long as that flag was set, the npm narrowing this comment describes
+# was decoration, and the container was the only thing standing between a
+# malicious postinstall script and those two credentials.
+#
+# Removing it costs nothing that was verified to matter: in-repo Edit/Write run
+# with zero denials, and a denial does not fail the job - the run still exits 0
+# with subtype 'success' and the refusal listed - so the agent degrades instead
+# of hanging, which is what an unattended job needs.
+#
+# --add-dir grants /out, which is outside the clone. The signals contract no
+# longer needs it - the agent is asked for .observability/signals.json, inside
+# the repo, precisely because the out-of-workspace write was refused on its
+# first attempt and the agent then spent real budget investigating. It stays as
+# a fallback so an agent that writes to /out anyway is accepted rather than
+# silently losing its report.
 #
 # --plugin-dir must point at the PLUGIN directory - the one containing
 # .claude-plugin/plugin.json - NOT its parent. The parent holds the
@@ -297,13 +323,24 @@ set +e
 # skills it could see and it answered NONE.
 claude -p "$PROMPT" \
   --plugin-dir /opt/observability-plugin/plugin \
-  --permission-mode bypassPermissions \
+  --add-dir "$OUT" \
   --allowedTools "Read Edit Write Glob Grep Bash(go:*) Bash(npm install --package-lock-only --ignore-scripts:*) Bash(npm ci --dry-run:*)" \
   --max-budget-usd "$BUDGET_USD" \
   --output-format json \
   > "$OUT/agent.json" 2>"$OUT/agent.log"
 AGENT_RC=$?
 set -e
+
+# Refusals are not failures, but they are evidence: a job that kept bouncing off
+# the allowlist either needed something it should have been given, or tried
+# something it should not have. Either way someone should be able to see it
+# after the fact without re-running the job.
+DENIED="$(jq -r '[.permission_denials[]? | .tool_name + ": "
+                  + ((.tool_input.command // .tool_input.file_path // "") | tostring)]
+                 | join("; ")' "$OUT/agent.json" 2>/dev/null || true)"
+if [ -n "$DENIED" ] && [ "$DENIED" != "null" ]; then
+  echo "note: tool calls refused by the allowlist: $DENIED" >&2
+fi
 [ "$AGENT_RC" -ne 0 ] && fail "the agent exited $AGENT_RC — see agent.log"
 
 SUMMARY="$(jq -r '.result // empty' "$OUT/agent.json" 2>/dev/null)"
@@ -333,8 +370,23 @@ else
   | if length == 0 then null else . end
 end'
 
+# Read from INSIDE the repo, then delete before anything is staged. The agent
+# used to be told to write /out/signals.json, outside the clone: that needs an
+# --add-dir grant, the first write was refused anyway, and the agent then spent
+# turns investigating the refusal - on one real run it burned the whole budget
+# doing it. A path it already has permission to write is worth more than a
+# tidier location.
 SIGNALS=null
-if [ -s "$OUT/signals.json" ]; then
+SIGNALS_SRC="$REPO_DIR/.observability/signals.json"
+if [ -s "$SIGNALS_SRC" ]; then
+  SIGNALS="$(jq -c "$SIGNALS_FILTER" "$SIGNALS_SRC" 2>/dev/null || echo null)"
+  # Keep a copy with the other artifacts for debugging, then remove the original
+  # so it cannot reach the client's patch.
+  cp "$SIGNALS_SRC" "$OUT/signals.json" 2>/dev/null || true
+  rm -f "$SIGNALS_SRC"
+elif [ -s "$OUT/signals.json" ]; then
+  # The agent wrote to /out instead. --add-dir still grants that, so accept it
+  # rather than discarding a correct report over its location.
   SIGNALS="$(jq -c "$SIGNALS_FILTER" "$OUT/signals.json" 2>/dev/null || echo null)"
 fi
 if [ "$SIGNALS" = "null" ] || [ -z "$SIGNALS" ]; then
@@ -381,10 +433,18 @@ for n in platform service; do
 done
 # `|| true` is mandatory, not cosmetic: set -e is live and grep -v exits 1 when
 # it filters out every line, which is exactly the nothing-to-onboard case.
+# signals.json is excluded by PATH, not content, and that is correct here: it is
+# never client content, it is this script's own input, and it should already
+# have been deleted above. This is the second line of defence - if that delete
+# ever fails, the file must still not turn a nothing-to-onboard repo into a
+# patch, nor reach the client.
 if [ -n "$UNTOUCHED" ]; then
-  AGENT_CHANGES="$(git diff --cached --name-only | grep -vE "^\.observability/($UNTOUCHED)\.json$" || true)"
+  AGENT_CHANGES="$(git diff --cached --name-only \
+    | grep -vE "^\.observability/($UNTOUCHED)\.json$" \
+    | grep -vE '^\.observability/signals\.json$' || true)"
 else
-  AGENT_CHANGES="$(git diff --cached --name-only || true)"
+  AGENT_CHANGES="$(git diff --cached --name-only \
+    | grep -vE '^\.observability/signals\.json$' || true)"
 fi
 if [ -z "$AGENT_CHANGES" ]; then
   # Not a failure. A repository with nothing to onboard is a real answer, and
