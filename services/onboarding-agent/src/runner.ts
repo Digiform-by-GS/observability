@@ -92,6 +92,7 @@ export async function runJob(
     ...(req.environment ? { ENVIRONMENT: req.environment } : {}),
     ...(req.signals?.length ? { SIGNALS_REQUESTED: req.signals.join(',') } : {}),
     ...(req.appUrl ? { APP_URL: req.appUrl } : {}),
+    ...(req.browserIngest ? { BROWSER_INGEST: req.browserIngest } : {}),
     ...(req.gitToken ? { GIT_TOKEN: req.gitToken } : {}),
   };
 

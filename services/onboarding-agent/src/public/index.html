@@ -206,8 +206,17 @@
       </label>
       <label id="appUrlWrap" hidden>
         <span class="lbl">Public URL of the deployed app</span>
-        <span class="hint">Needed so the platform operator can add that origin to the browser receiver's CORS allowlist — without it the browser's exports are rejected before they leave the page. The agent cannot do this part; it repeats the URL in the pull request for whoever can.</span>
+        <span class="hint">Lets the agent check whether the browser talks to your API same-origin, which decides whether trace propagation is free or needs a backend CORS change first.</span>
         <input name="appUrl" placeholder="https://app.example.com">
+      </label>
+      <label id="ingestWrap" hidden>
+        <span class="lbl">How the browser reaches the platform</span>
+        <span class="hint">An HTTPS page cannot post to a plain-HTTP collector, and a collector on a private network is not reachable from a visitor's browser at all. Neither failure produces an error the app can see — it just reports nothing.</span>
+        <select name="browserIngest">
+          <option value="proxy">Proxy through this app's own origin (recommended)</option>
+          <option value="direct">Direct to the platform endpoint</option>
+        </select>
+        <span class="warn"><strong>Pick Direct only if every user is on the same network as the platform</strong> — an internal tool behind a VPN. Proxying adds one rewrite rule, works in both cases, and needs no CORS allowlist entry because the browser never leaves your origin.</span>
       </label>
     </fieldset>
 
@@ -237,7 +246,11 @@ f.deploymentConfig.addEventListener('change', () => {
   depLocWrap.hidden = f.deploymentConfig.value === 'in_repo'
                    || f.deploymentConfig.value === 'unknown';
 });
-f.wantRum.addEventListener('change', () => { appUrlWrap.hidden = !f.wantRum.checked; });
+const ingestWrap = document.getElementById('ingestWrap');
+f.wantRum.addEventListener('change', () => {
+  appUrlWrap.hidden = !f.wantRum.checked;
+  ingestWrap.hidden = !f.wantRum.checked;
+});
 
 f.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -249,6 +262,7 @@ f.addEventListener('submit', async (e) => {
   // to the client's repo in .observability/service.json.
   if (depLocWrap.hidden) delete body.deploymentConfigLocation;
   if (appUrlWrap.hidden) delete body.appUrl;
+  if (ingestWrap.hidden) delete body.browserIngest;
   f.go.disabled = true;
   try {
     const r = await fetch('/api/jobs', {

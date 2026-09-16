@@ -6,9 +6,11 @@ import { fileURLToPath } from 'node:url';
 import {
   JobStore,
   DEPLOYMENT_CONFIGS,
+  BROWSER_INGESTS,
   type JobRequest,
   type DeliveryMode,
   type DeploymentConfig,
+  type BrowserIngest,
   type Signal,
 } from './jobs.js';
 import { parseRepoUrl, requestNoun } from './providers.js';
@@ -190,6 +192,13 @@ app.post('/api/jobs', (req, res) => {
     ...(body.environment ? { environment: oneLine(body.environment, 32) } : {}),
     signals: resolveSignals(body),
     ...(toOrigin(body.appUrl) ? { appUrl: toOrigin(body.appUrl) as string } : {}),
+    // Defaults to 'proxy' on anything unrecognised, including absent. That is
+    // the safe direction: proxying works wherever a server exists, while
+    // 'direct' fails silently the moment the page is HTTPS or the collector is
+    // on a private address.
+    browserIngest: BROWSER_INGESTS.includes(body.browserIngest as BrowserIngest)
+      ? (body.browserIngest as BrowserIngest)
+      : 'proxy',
   };
 
   const job = store.create(jobReq);

@@ -80,9 +80,13 @@ matter.
 3. **Do you want correlated logs?** This changes their log format (see Step 3b),
    so it is genuinely their call, not a default you can assume.
 4. **Do you want browser/RUM?** Only meaningful if the service serves a UI, and
-   only possible if the platform publishes `otlp_browser`. If yes, ask for the
-   **deployed public URL** — the platform operator needs that origin for the
-   collector's CORS allowlist, which is not something you can do from here.
+   only possible if the platform publishes `otlp_browser`. If yes, ask two
+   follow-ups: the **deployed public URL**, and **whether every user's browser
+   is on the same network as the platform**. Default to proxying through the
+   app's own origin unless they say yes — see
+   [references/browser.md](references/browser.md), "Getting telemetry out of
+   the browser". Assuming a browser can reach the collector is the most common
+   way browser onboarding ships and delivers nothing.
 
 ```json
 {
@@ -90,7 +94,8 @@ matter.
   "deployment_config_location": "infra-config.git → charts/orders/values-dev.yaml, key secretEnv",
   "environment": "development",
   "signals": ["traces", "metrics", "logs"],
-  "app_url": "https://app.example.com"
+  "app_url": "https://app.example.com",
+  "browser_ingest": "proxy"
 }
 ```
 

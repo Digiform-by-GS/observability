@@ -100,15 +100,38 @@ API base URL before proposing a CORS change to another team.
 Default is empty. Leave it empty unless you have confirmed same-origin or
 confirmed the backend allows the header, and say which in the PR body.
 
-### 2. If your app is served over HTTPS, proxy through your own origin
+### 2. Proxy through your own origin — decide this BEFORE writing any code
 
-This is the common case, and going straight at the collector does not work:
+This is the single most common way browser onboarding ships and delivers
+nothing. The code is correct, the build is clean, and every export dies in the
+browser with no error the application can see.
 
-- **Mixed content.** A page on `https://` cannot POST to an `http://` endpoint.
-  Browsers block it before the request leaves, and no CORS configuration
-  changes that.
-- **Routability.** A collector on a private address is not reachable from a
-  user's phone or home network at all.
+`.observability/service.json` carries `browser_ingest`. Treat `proxy` — the
+default — as the answer unless you have positively confirmed otherwise, and
+**override a `direct` answer when either test below fails**, saying in the PR
+body why:
+
+| Check | If it fails |
+|---|---|
+| Is the app served over `http://`, or is `otlp_browser` `https://`? | **Mixed content.** An HTTPS page cannot POST to a plain-HTTP endpoint. Proxy. |
+| Can a visitor's browser route to the `otlp_browser` host? | **Unroutable.** A private address is not reachable from a phone or a home network. Proxy. |
+
+Both are settled by comparing `app_url` with `otlp_browser` in
+`.observability/`, which you can do without asking anyone. A `direct` answer
+only survives when the app *and* every user sit on the same network as the
+platform — an internal tool behind a VPN.
+
+**When you proxy, do not ask for a CORS allowlist entry.** A same-origin POST is
+never preflighted, so the collector's allowlist is not involved at all. Asking
+for one sends another team to change config that cannot affect the outcome.
+Conversely, when you genuinely do go `direct`, the allowlist entry is
+**required** and is a platform operation — say so explicitly in the PR body,
+with the exact origin.
+
+**If the app has no server that can proxy** — a purely static build with no
+rewrite layer you can edit — do not invent one. Say in the PR body that browser
+telemetry needs either a publicly routable HTTPS collector endpoint or a proxy
+in whatever serves the files, and onboard the server side only.
 
 Rather than exposing the collector publicly with TLS, forward a path from the
 app's own origin:
