@@ -1,6 +1,39 @@
-target: all,alertmanager,overrides-exporter
+# alertmanager dropped: Grafana owns alerting (infra/grafana/provisioning/alerting),
+# the prometheus datasource sets manageAlerts:false, and nothing queries Mimir's
+# alertmanager. It was never part of `all` - it was added explicitly - and
+# removing it reclaims memory for the per-tenant TSDBs below, each of which
+# carries its own head block, WAL, index and block stream.
+#
+# overrides-exporter was already here with nothing to export; runtime_config
+# below is what finally gives it per-tenant limits to publish.
+target: all,overrides-exporter
 
-multitenancy_enabled: false
+# Partition metrics by tenant, read from X-Scope-OrgID.
+#
+# MUST NOT LAND BEFORE TEMPO'S multitenancy_enabled. Tempo's metrics generator
+# only sends an org header in multi-tenant mode, so enabling this first makes
+# every span-metric and service-graph write 401 - silently, because the
+# collector is not in that write path and no alert watches it.
+multitenancy_enabled: true
+
+# Let one query span several tenants, which is what keeps a single shared
+# Grafana working: the datasources send a pipe-separated tenant list and results
+# gain a __tenant_id__ label.
+#
+# max_concurrent is 4, not the default 16. Every federated query fans out into
+# one sub-query per tenant; Platform Health alone has 15 Prometheus targets, so
+# the default would turn one dashboard refresh into 90 concurrent sub-queries on
+# a 2 vCPU box shared with every backend it is querying.
+tenant_federation:
+  enabled: true
+  max_concurrent: 4
+
+# Per-tenant limits, hot-reloaded on this period - no restart. Generated from
+# infra/tenants.yaml by scripts/gen-tenants.py; the loader is strict, so an
+# unknown key is a hard failure rather than a warning.
+runtime_config:
+  file: /etc/mimir/runtime.yaml
+  period: 10s
 
 server:
   http_listen_port: 9009
