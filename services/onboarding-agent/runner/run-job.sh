@@ -29,6 +29,7 @@ DEPLOYMENT_CONFIG_LOCATION="${DEPLOYMENT_CONFIG_LOCATION:-}"
 ENVIRONMENT="${ENVIRONMENT:-}"
 SIGNALS_REQUESTED="${SIGNALS_REQUESTED:-traces,metrics,logs}"
 APP_URL="${APP_URL:-}"
+BROWSER_INGEST="${BROWSER_INGEST:-proxy}"
 # Baked into the image at build time. Recorded on every result so a patch can
 # always be traced back to the runner that produced it - "which skills did this
 # job actually have" is otherwise unanswerable after the fact.
@@ -101,11 +102,13 @@ jq -n --arg o "$OTLP_ENDPOINT" --arg g "$GRAFANA_URL" --arg p "${PYROSCOPE_URL:-
 if [ ! -f .observability/service.json ]; then
   jq -n --arg d "$DEPLOYMENT_CONFIG" --arg l "$DEPLOYMENT_CONFIG_LOCATION" \
         --arg e "$ENVIRONMENT" --arg s "$SIGNALS_REQUESTED" --arg u "$APP_URL" \
+        --arg bi "$BROWSER_INGEST" \
     '{deployment_config:$d}
      + (if $l == "" then {} else {deployment_config_location:$l} end)
      + (if $e == "" then {} else {environment:$e} end)
      + {signals: ($s | split(",") | map(select(length > 0)))}
-     + (if $u == "" then {} else {app_url:$u} end)' \
+     + (if $u == "" then {} else {app_url:$u} end)
+     + {browser_ingest:$bi}' \
     > .observability/service.json
 fi
 
@@ -116,6 +119,7 @@ DEPLOYMENT_CONFIG_LOCATION="$(jq -r '.deployment_config_location // ""' .observa
 ENVIRONMENT="$(jq -r '.environment // ""' .observability/service.json)"
 SIGNALS_REQUESTED="$(jq -r '(.signals // ["traces","metrics","logs"]) | join(",")' .observability/service.json)"
 APP_URL="$(jq -r '.app_url // ""' .observability/service.json)"
+BROWSER_INGEST="$(jq -r '.browser_ingest // "proxy"' .observability/service.json)"
 
 # Snapshot both seeds so the "did the agent change anything" check below can
 # compare CONTENT rather than path. A path exclusion cannot tell a file this
@@ -180,12 +184,44 @@ fi
 
 if [ -n "$APP_URL" ]; then
   APP_URL_RULE="- The deployed app is served from: \"${APP_URL}\". Compare it with the API base
-  URL before proposing any CORS change, and repeat it in the PR body: the
-  platform operator must add that origin to the browser receiver's allowlist
-  before browser telemetry is accepted."
+  URL before proposing any CORS change."
 else
-  APP_URL_RULE="- The app's public URL was not given. If you instrument the browser, say in the
-  PR body that the operator needs the deployed origin to allowlist it."
+  APP_URL_RULE="- The app's public URL was not given."
+fi
+
+# How browser telemetry reaches the collector. This is the single most common
+# way browser onboarding ships and delivers nothing: the code is correct, the
+# build is clean, and every export dies in the browser with no error the
+# application can see.
+if [ "$BROWSER_INGEST" = "direct" ]; then
+  BROWSER_RULE="- Browser ingest: DIRECT. The client states every user's browser is on the same
+  network as the platform, so point the browser SDK straight at the
+  otlp_browser endpoint from platform.json.
+  Check this yourself before accepting it, because it is wrong more often than
+  it is right: if the app is served over https and that endpoint is http, the
+  browser blocks every export as mixed content no matter what the client said.
+  If that is the case, build the same-origin proxy instead and say in the PR
+  body why you overrode the answer.
+  Also say in the PR body that the platform operator must add the app's origin
+  to the browser receiver's CORS allowlist - a direct cross-origin POST is
+  preflighted, and an origin that is not allowlisted is refused silently."
+else
+  BROWSER_RULE="- Browser ingest: PROXY through the app's own origin. Do NOT point the browser
+  SDK at the collector directly. Forward a path from this app - a next.config
+  rewrite, a vite proxy, an nginx location - to the otlp_browser endpoint in
+  platform.json, and set the SDK's endpoint to that PATH, for example '/otel'.
+  Two independent reasons, and neither is fixable with CORS: a page served over
+  https cannot POST to a plain-http collector (mixed content, blocked before
+  the request leaves), and a collector on a private address is not reachable
+  from a visitor's browser at all. Proxying fixes both, and removes CORS from
+  the picture entirely - a same-origin POST is never preflighted - so no
+  allowlist change is needed and you should NOT ask for one.
+  The app server must be able to reach the collector; say so in the PR body.
+  If this app has no server that can proxy - a purely static build with no
+  rewrite layer you can edit - then do NOT invent one. Say plainly in the PR
+  body that browser telemetry needs either a publicly routable HTTPS collector
+  endpoint or a proxy in whatever serves these files, and onboard the server
+  side only."
 fi
 
 PROMPT="Onboard the service in this repository onto the Digiform observability platform.
@@ -248,6 +284,7 @@ ${ENV_RULE}
   format change; still SAY what logging they have today and what it would take.
   If 'rum' is absent do not add browser instrumentation at all.
 ${APP_URL_RULE}
+${BROWSER_RULE}
 - BEFORE you finish you MUST write .observability/signals.json - a path INSIDE
   this repository, relative to its root. This script reads it and then deletes
   it, so it never reaches the patch; do not try to write anywhere outside the

@@ -10,6 +10,22 @@ export type DeploymentConfig = 'in_repo' | 'other_repo' | 'secret_manager' | 'un
 export type Signal = 'traces' | 'metrics' | 'logs' | 'rum';
 export type SignalState = 'wired' | 'not_wired' | 'n/a';
 
+/**
+ * How browser telemetry gets from the page to the collector.
+ *
+ * `proxy` is the default because it is correct wherever a server exists, and
+ * the two things that break `direct` are both invisible from the repository:
+ * an HTTPS page cannot POST to a plain-HTTP collector (mixed content, blocked
+ * before the request leaves), and a collector on a private address is not
+ * reachable from a visitor's browser at all. Neither produces an error the
+ * application can see.
+ *
+ * `direct` is an override for an app whose users are all on the same network
+ * as the platform — an internal tool behind a VPN.
+ */
+export type BrowserIngest = 'proxy' | 'direct';
+export const BROWSER_INGESTS: readonly BrowserIngest[] = ['proxy', 'direct'];
+
 export const SIGNALS: readonly Signal[] = ['traces', 'metrics', 'logs', 'rum'];
 export const DEPLOYMENT_CONFIGS: readonly DeploymentConfig[] = [
   'in_repo',
@@ -50,6 +66,7 @@ export interface JobRequest {
   environment?: string;
   signals?: Signal[];
   appUrl?: string;
+  browserIngest?: BrowserIngest;
   /**
    * Never stored on the Job record and never written to disk — it is handed to
    * the container as an environment variable and dropped. Persisting a
