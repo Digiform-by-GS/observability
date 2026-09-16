@@ -19,9 +19,27 @@ FAIL=0
 note() { printf '%-46s %s\n' "$1" "$2"; }
 bad()  { note "$1" "FAIL — $2"; FAIL=1; }
 
+# Which tenant to read back from. This script pushes through the collector on
+# :4318, which stamps the catch-all tenant, so that is where its own data lands.
+#
+# Deliberately ONE tenant rather than the federated list: a single-tenant read
+# works in every phase of the tenancy migration - ignored outright while the
+# backends have tenancy off, and valid afterwards without depending on tenant
+# federation being enabled. A federated read would pass or fail for reasons that
+# have nothing to do with what this script is testing.
+READ_TENANT="${READ_TENANT:-unattributed}"
+
 # curl runs inside the obs network: Loki/Tempo/Mimir deliberately have no host
 # ports, and their images are distroless so `exec curl` is not an option.
-inet() { docker run --rm --network "$NET" curlimages/curl:latest -s "$@" 2>/dev/null; }
+#
+# The org header goes here rather than at each call site so no future read can
+# forget it. Backends with tenancy disabled ignore it; with tenancy enabled, a
+# request without it is rejected outright, and the resulting failure looks
+# exactly like "the platform lost my data".
+inet() {
+  docker run --rm --network "$NET" curlimages/curl:latest \
+    -s -H "X-Scope-OrgID: $READ_TENANT" "$@" 2>/dev/null
+}
 
 echo "=== 1. CPU capability ==="
 # Tempo and Pyroscope ship GOAMD64=v2 builds and abort instantly on CPU models

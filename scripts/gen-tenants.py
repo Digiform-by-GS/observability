@@ -124,15 +124,22 @@ def collector_fragment(tenants):
     Blast Radius is built on exactly that edge.
     """
     ca = catch_all(tenants)["name"]
-    # Exporters that a generated pipeline actually references. Queue sizes are
+    # Only tenants the ROUTING TABLE feeds get an exporter here. A
+    # pipeline-assigned tenant (routed: false) is wired by a hand-maintained
+    # pipeline in the base config, so its exporter belongs in the base config
+    # too - emitting it here would produce an exporter this file defines and
+    # never references, which is only valid because some other file happens to
+    # use it. Keeping each file self-consistent is what lets the base be
+    # deployed in phase 1 before this fragment is loaded at all.
+    # Queue sizes are
     # budgeted so N exporters together hold roughly what the single exporter
     # held before: the defaults are PER INSTANCE (otlphttp 10 consumers x 1000
     # requests, prw 10000 items x 5), and N of those is the real memory risk -
     # not the exporter count itself. The failure mode is a backend restart:
     # untuned, memory_limiter starts refusing at the receiver and every tenant
     # loses data because one backend was slow.
-    metric_tenants = [t["name"] for t in tenants]
-    log_tenants = [t["name"] for t in routed(tenants)] + [ca]
+    metric_tenants = [t["name"] for t in routed(tenants)] + [ca]
+    log_tenants = list(metric_tenants)
 
     prw_queue = max(500, 10000 // max(1, len(metric_tenants)))
     log_queue = max(50, 1000 // max(1, len(log_tenants)))
@@ -186,8 +193,7 @@ def collector_fragment(tenants):
 
     out.append("\nservice:\n  pipelines:")
     for name in metric_tenants:
-        if name in [t["name"] for t in routed(tenants)] + [ca]:
-            out.append(f"""    metrics/t-{name}:
+        out.append(f"""    metrics/t-{name}:
       receivers: [routing/metrics]
       exporters: [prometheus_remote_write/{name}]""")
     for name in log_tenants:
@@ -299,6 +305,72 @@ single-tenant `loki-tail` datasource.
 """
 
 
+DATASOURCES = ROOT / "infra/grafana/provisioning/datasources/datasources.yaml"
+
+# Each store names its pre-tenancy bucket differently, so the read lists differ.
+# These stay until data written before the cutover ages out (7d logs and traces,
+# 30d metrics), then they can be dropped from the manifest's consumers.
+LEGACY = {"prometheus": "anonymous", "loki": "fake", "tempo": "single-tenant"}
+
+
+def check_datasources(tenants):
+    """Assert Grafana reads every tenant the collector may write.
+
+    This is the asymmetry that makes tenancy dangerous: adding a tenant to the
+    manifest gives it an exporter and a limit, so its telemetry is accepted and
+    stored - but if its id is not in the datasource's federation header, it is
+    INVISIBLE in Grafana. Nothing errors. A dashboard just quietly shows a subset
+    of reality, which is worse than showing none.
+
+    Not generated, because datasources.yaml is mostly hand-maintained
+    correlation wiring - derived fields, traces-to-logs, exemplar destinations -
+    that a generator would have to carry as string literals. Asserted instead,
+    the same way check-compat.py asserts versions it does not own.
+    """
+    if not DATASOURCES.exists():
+        die(f"{DATASOURCES} is missing")
+    doc = yaml.safe_load(DATASOURCES.read_text(encoding="utf-8"))
+    by_uid = {d["uid"]: d for d in doc["datasources"]}
+    names = [t["name"] for t in tenants]
+    problems = []
+
+    for uid, legacy in LEGACY.items():
+        ds = by_uid.get(uid)
+        if ds is None:
+            problems.append(f"  datasource {uid!r} is missing entirely")
+            continue
+        want = "|".join(names + [legacy])
+        got = (ds.get("secureJsonData") or {}).get("httpHeaderValue1")
+        if got != want:
+            missing = [n for n in names if n not in (got or "").split("|")]
+            detail = f" (never readable: {', '.join(missing)})" if missing else ""
+            problems.append(f"  {uid}: expected {want!r}, found {got!r}{detail}")
+        if (ds.get("jsonData") or {}).get("httpHeaderName1") != "X-Scope-OrgID":
+            problems.append(f"  {uid}: jsonData.httpHeaderName1 must be 'X-Scope-OrgID'")
+
+    # The live-tail datasource must stay single-tenant: Loki returns HTTP 400
+    # from /loki/api/v1/tail when the header names more than one.
+    tail = by_uid.get("loki-tail")
+    if tail is None:
+        problems.append("  datasource 'loki-tail' is missing; Explore's Live button needs it")
+    else:
+        val = (tail.get("secureJsonData") or {}).get("httpHeaderValue1", "")
+        if "|" in val:
+            problems.append(
+                f"  loki-tail: must name exactly one tenant, found {val!r} - "
+                "Loki 400s on a multi-tenant tail request"
+            )
+        elif val not in names:
+            problems.append(f"  loki-tail: {val!r} is not a tenant in the manifest")
+
+    if problems:
+        die(
+            "Grafana datasources disagree with infra/tenants.yaml:\n"
+            + "\n".join(problems)
+            + "\n  A tenant missing from a read list is written but INVISIBLE."
+        )
+
+
 TARGETS = {
     "infra/otel-collector/tenants.platform.yaml": collector_fragment,
     "infra/mimir/runtime.yaml": mimir_runtime,
@@ -321,6 +393,7 @@ def render(tenants, defaults, budget, total):
 if __name__ == "__main__":
     check = "--check" in sys.argv
     _doc, tenants, defaults, budget, total = load()
+    check_datasources(tenants)
     stale = []
     for rel, body in render(tenants, defaults, budget, total).items():
         path = ROOT / rel
