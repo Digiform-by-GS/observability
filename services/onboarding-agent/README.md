@@ -23,12 +23,27 @@ clones the repo, seeds `.observability/platform.json`, runs the
 
 ## What it deliberately does not do
 
-**It never executes client code.** No `npm install`, no `go build`, no running
-the app. Onboarding is a source transformation — edit `package.json`, add the
-preload flag, rewrite `main()` — so execution buys nothing, while `npm install`
-on an untrusted repo is arbitrary code execution one hop from the shared
-platform. Verification stays with the client, who runs the plugin's `verify`
-skill against their own app where that is unremarkable.
+**It never runs the client's application, and never runs their dependencies'
+install hooks.** Onboarding is a source transformation — edit `package.json`,
+add the preload flag, rewrite `main()` — so running the app buys nothing, while
+a plain `npm install` on an untrusted repo executes arbitrary `postinstall`
+scripts from a stranger's dependency tree, inside a container holding the
+client's own git token and an Anthropic API key.
+
+Two narrow exceptions, both non-executing as far as client code is concerned:
+`npm install --package-lock-only --ignore-scripts` and `npm ci --dry-run`
+resolve and check the dependency tree without writing `node_modules` or running
+a lifecycle script. Go is different — `go get`/`go mod tidy` must download and
+checksum modules or the patch cannot compile, and `go build ./...` compiles
+without running anything, so both are permitted.
+
+That list is enforced, not merely stated: the runner passes it as
+`--allowedTools` and — importantly — does **not** pass
+`--permission-mode bypassPermissions`, which would skip permission evaluation
+and void the allowlist without visibly changing it. CI guards both.
+
+Verification stays with the client, who runs the plugin's `verify` skill against
+their own app where running it is unremarkable.
 
 Consequence to be honest with clients about: the patch is **reviewed, not
 proven**. It should be read before merging, and verified after.
@@ -50,6 +65,7 @@ Required in `.env`:
 | `ANTHROPIC_API_KEY` | the agent's credentials; the service refuses to start without it |
 | `PUBLIC_OTLP_ENDPOINT` | baked into every generated `platform.json` — must be the address a **client** can reach, not a container name |
 | `PUBLIC_GRAFANA_URL` | same |
+| `PUBLIC_OTLP_BROWSER_ENDPOINT` | optional, but **browser/RUM onboarding does nothing without it**. The CORS-enabled receiver on `4319`, not the service receiver on `4318`, and it must be reachable from a user's browser. Absent, the agent is instructed to onboard the server side only — quietly, with no error |
 | `ONBOARD_API_KEY` | shared secret for `POST`. Optional on a trusted LAN, **required** anywhere else, because a submitted job can carry a customer's repo token |
 | `ONBOARD_BUDGET_USD` | per-job ceiling, default `2.00` |
 | `ONBOARD_GITLAB_HOSTS` | comma-separated self-hosted GitLab hostnames. `gitlab.com`/`github.com` need no configuration; other hosts must be listed here or the caller must send `provider` |

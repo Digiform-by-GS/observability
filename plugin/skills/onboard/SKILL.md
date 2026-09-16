@@ -57,6 +57,51 @@ file later gains a `tenant` field and an API-key reference, newer platform
 versions use those; never write an actual key into this file — keys live in env
 vars or `.env` (gitignored).
 
+## Step 0b — The four things you cannot read (`.observability/service.json`)
+
+If `.observability/service.json` exists, **use it and skip this step** — and
+where it disagrees with anything you were told in the task, the file wins. It
+was committed by someone looking at their own infrastructure; a parameter was
+typed into a form by someone who may not have been.
+
+If it is absent, ask these four questions, then write the file. Ask only these:
+everything else about the service you can determine by reading the repository,
+and questions with knowable answers train people to click past the ones that
+matter.
+
+1. **Where does this service get its environment variables in the environment
+   you are onboarding?** In this repository, another repository (GitOps/Helm),
+   a secret manager, or you are not sure. **If it is not this repository, ask
+   where** — the repo, file and key. This single string is what turns "set these
+   variables somewhere" into an instruction someone can act on.
+2. **Which environment does this branch deploy to?** `development`, `staging`,
+   or `production`. Branch-to-environment mappings are conventions, not
+   something a repository states.
+3. **Do you want correlated logs?** This changes their log format (see Step 3b),
+   so it is genuinely their call, not a default you can assume.
+4. **Do you want browser/RUM?** Only meaningful if the service serves a UI, and
+   only possible if the platform publishes `otlp_browser`. If yes, ask for the
+   **deployed public URL** — the platform operator needs that origin for the
+   collector's CORS allowlist, which is not something you can do from here.
+
+```json
+{
+  "deployment_config": "other_repo",
+  "deployment_config_location": "infra-config.git → charts/orders/values-dev.yaml, key secretEnv",
+  "environment": "development",
+  "signals": ["traces", "metrics", "logs"],
+  "app_url": "https://app.example.com"
+}
+```
+
+`deployment_config` is one of `in_repo`, `other_repo`, `secret_manager`,
+`unknown`. Traces and metrics are always both present or both absent — they come
+from one SDK init, so there is no such thing as one without the other.
+
+**Warn before writing `deployment_config_location`:** this file is committed to
+their repository, so an internal repo name or a secret-manager path goes into
+their history. If that is sensitive, leave it out and keep the handoff generic.
+
 ## Step 1 — Detect the stack
 
 - `package.json` present → Node path. Check `dependencies` for `express`,
@@ -92,12 +137,24 @@ Grep before you edit:
 ```
 observability.New(        initObservability(
 registerOTel(             initBrowserObservability(
-.observability/platform.json
 ```
 
 If any of these exist, this is **not a fresh onboarding**. The service already
 reports, and your job changes completely: find what is MISSING, do not re-apply
 the parameters you were handed.
+
+**The files under `.observability/` are not evidence on their own.** When this
+skill runs unattended, the harness *seeds* `platform.json` and `service.json`
+before you start, so their presence says nothing about the service. What counts
+is whether they predate this run:
+
+```
+git log --oneline -1 -- .observability/platform.json
+```
+
+Output means a human committed it and the service is very likely onboarded
+already. No output means it arrived with this run — ignore it and judge by the
+code markers above.
 
 ### Never change an existing OTEL_SERVICE_NAME. Not ever.
 
@@ -153,8 +210,54 @@ Only one variable is mandatory:
 | `OTEL_SERVICE_VERSION` | Optional | Release tag like `1.4.2` — **never a git SHA** (each distinct value mints a full new set of metric series) |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Only if the platform requires auth | `Authorization=Bearer <key>` — the operator issues the key; keep it in `.env`/secrets, never in platform.json |
 
-Wire these wherever the service already gets its env (`.env` file, compose
-`environment:`, deployment manifest). Follow the repo's existing convention.
+### Where to put them — by file class, not by "what the repo seems to do"
+
+"Follow the repo's existing convention" is what this skill used to say, and it
+is how the worst onboarding defect so far happened: a repo contained
+`deployment/{development,staging}/deployment.yaml` and another contained
+`.helm/values-*.yaml`, the agent dutifully added the variables to both, and
+**every one of those files was dead**. The live configuration was in a different
+repository entirely (`Vault → Helm values repo → ArgoCD`), which is invisible
+from inside the clone. The merge requests looked like success and changed
+nothing.
+
+So the rule is about the *class of file*, which you can see, not about which
+config is live, which you usually cannot:
+
+**Always safe to edit** — the repository's own runtime, no shadow copy exists:
+
+- `.env.example` (documentation; never `.env` itself, which is gitignored)
+- `docker-compose.yml` → `environment:`
+- `package.json` scripts, `Procfile`
+
+**Never edit unless the user has explicitly told you the deployment config for
+this environment lives in this repository:**
+
+- Kubernetes manifests (`Deployment`, `ConfigMap`, `StatefulSet`)
+- Helm `values*.yaml`, anything under `.helm/` or `charts/`
+- ArgoCD `Application` specs, Kustomize overlays
+
+For that second class, **put the variables in the PR body instead**, as a block
+whoever owns that configuration can paste. Name the destination if you were told
+it; ask for it if you were not. A handoff someone has to act on is worth more
+than an edit nobody reads.
+
+### The GitOps smell — detect it yourself
+
+Application code **and** Kubernetes/Helm manifests in the same repository is
+evidence that the manifests are a stale copy, because in GitOps the live ones
+live in a config repo. It is evidence, not proof — so weigh it, say what you
+concluded, and default to the handoff. What strengthens it:
+
+- `argocd.argoproj.io/*` annotations anywhere in the repo
+- a `.helm/` or `deployment/` directory that no CI pipeline in the repo publishes
+- an image tag pinned to something far older than the latest commit
+- several environment directories (`development/`, `staging/`, `production/`)
+  whose contents have drifted apart
+
+If you see these, say so in the PR body in as many words: *"this repo contains
+deployment manifests, but they appear to be a stale copy — I have not edited
+them; here are the variables to set wherever the live config lives."*
 
 **`OTEL_SERVICE_NAME` rules** (it is the identity of everything this service
 emits — every dashboard, log query, and trace search keys on it):
@@ -188,6 +291,13 @@ So: **it belongs in the deployment configuration, never in the image.** A
 Kubernetes `env:` block, a Helm value, a secret manager entry — whatever the
 target already uses for per-environment config. If it is baked in at build time,
 one image cannot serve two environments and promotion silently mislabels.
+
+Note what that means alongside the file-class rule above: the one variable that
+*most* needs to be set is usually in the one place you are *least* likely to be
+allowed to edit. That is not a contradiction to resolve by editing the manifest
+anyway — it is the reason the handoff block exists. Put the value in the PR body
+with the environment named, and if you were told where the live config lives,
+name that too.
 
 **Say this to whoever deploys the change**, in the PR body, in these words or
 close to them:
@@ -257,6 +367,33 @@ onboarding done because the app starts — an app with a typo'd endpoint starts
 fine and sends everything into the void. Verification means the signals were
 read back out of the platform.
 
+## Step 5 — State your coverage, signal by signal
+
+Finish by saying explicitly, for each of **traces, metrics, logs, and browser
+RUM**, whether it is wired — and if not, why not, citing the file that decides
+it. Four lines. Do not skip the ones that went fine.
+
+| State | Means |
+|---|---|
+| `wired` | The code path is present in your diff |
+| `not_wired` | It is not, and the reason says which file shows that |
+| `n/a` | The stack cannot carry it (e.g. logs on Next.js) or it was not asked for |
+
+Two things this is not. It is **not** a claim that data arrives — you have not
+run the application, and only the verify skill can say that; `wired` means the
+code is there and nothing more. And it is **not** a formality: a signal that is
+missing is a genuinely useful result, so report it rather than rounding it up.
+
+This exists because Step 3b — "check how the service logs, recommend the fix" —
+was already a documented completion criterion and still failed to fire on three
+consecutive runs. A step in the middle of a procedure gets skipped once the task
+feels done, and nothing downstream could tell "checked, it was fine" apart from
+"never looked". A per-signal statement at the end can be checked by someone who
+was not there.
+
+When running unattended, the harness will tell you to write this as a JSON file;
+follow its instructions for the exact path and shape.
+
 ## The traps (why the reference docs say what they say)
 
 You will be tempted to deviate from the references when the user's codebase
@@ -303,10 +440,17 @@ looks unusual. These rules survive deviation only if you understand them:
   re-applied.
 - Dependency added, start command / main() wired per the reference.
 - Env vars set with a stable `OTEL_SERVICE_NAME` and the platform endpoint.
-- `OTEL_DEPLOYMENT_ENVIRONMENT` set in the DEPLOYMENT config for this
-  environment, and the PR body tells whoever promotes it that this one value
-  must change for production.
-- `.observability/platform.json` present and committed.
+- `OTEL_DEPLOYMENT_ENVIRONMENT` set for this environment — in the deployment
+  config if you were told it lives in this repo, otherwise in the PR body's
+  handoff block naming where it does live. The PR body tells whoever promotes it
+  that this one value must change for production.
+- **No Kubernetes manifest, Helm values file or ArgoCD spec was edited** unless
+  you were explicitly told the live config is in this repository. If you found
+  such files and left them alone, the PR body says so and says why.
+- `.observability/platform.json` and `.observability/service.json` present and
+  committed.
+- Coverage stated for all four signals (Step 5), including the ones that are
+  fine and the ones that are `n/a`.
 - The verify skill passes: trace, correlated log, and metrics all read back
   from the platform.
 - The user knows their Grafana URL and that their service appears under its

@@ -196,6 +196,28 @@ jobs:
           done
           echo "  npm grant is limited to the two non-executing forms"
 
+      # ...and that grant only means anything if permissions are actually
+      # evaluated. bypassPermissions skips evaluation entirely, so it voids the
+      # allowlist above without changing a character of it - which is exactly
+      # what happened: the flag sat there while the check above passed, and the
+      # agent could run `npm install` the whole time. Probed on 2.1.270: with
+      # the flag a non-allowlisted `touch` ran; without it `npm install express`
+      # was denied and recorded in .permission_denials. This check is the only
+      # thing that makes the one above true.
+      - name: runner does not bypass its own allowlist
+        run: |
+          # Anchored to a real flag: the script carries a DO-NOT-ADD comment
+          # naming this flag, and an unanchored grep matches the warning itself.
+          if grep -nE '^[[:space:]]*--permission-mode[= ]+bypassPermissions' services/onboarding-agent/runner/run-job.sh; then
+            echo "^ bypassPermissions voids --allowedTools; the npm narrowing becomes decoration"; exit 1
+          fi
+          # The signals contract asks for a path inside the repo, so nothing
+          # depends on this - but /out stays granted so an agent that writes its
+          # report there anyway is accepted instead of silently losing it.
+          grep -qE -- '--add-dir' services/onboarding-agent/runner/run-job.sh \
+            || { echo "no --add-dir: a signals report written to /out would be refused"; exit 1; }
+          echo "  permissions are enforced, and /out is granted explicitly"
+
       # Every shell script in the repo, not just the plugin's. Both of these
       # scripts report PASS/FAIL on whether telemetry is working, so a silent
       # logic bug in one is worse than a broken build: it reports success that

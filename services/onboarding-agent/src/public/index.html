@@ -32,6 +32,13 @@
   button { padding:.6rem 1.1rem; border:0; border-radius:6px; background:var(--accent);
            color:#fff; font:inherit; font-weight:600; cursor:pointer; justify-self:start; }
   button:disabled { opacity:.55; cursor:progress; }
+  fieldset { border:1px solid var(--line); border-radius:8px; padding:.9rem 1rem 1rem;
+             margin:0; display:grid; gap:.9rem; }
+  legend { font-weight:600; font-size:.85rem; padding:0 .35rem; }
+  p.fshint { font-size:.78rem; color:var(--muted); margin:0; }
+  label.check { grid-template-columns:auto 1fr; align-items:start; gap:.55rem; }
+  label.check input { margin-top:.2rem; }
+  label.check span strong { color:var(--fg); font-size:.9rem; font-weight:600; }
   .hint { font-size:.78rem; color:var(--muted); font-weight:400; }
   .hint code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.95em; }
   .warn { font-size:.78rem; color:var(--warn); background:var(--warnbg);
@@ -51,7 +58,17 @@
   .repo { font-weight:600; word-break:break-all; }
   .badge { font-size:.72rem; padding:.12rem .5rem; border-radius:999px; border:1px solid var(--line); }
   .queued{color:var(--muted)} .running{color:var(--accent)}
-  .succeeded{color:var(--ok)} .failed{color:var(--bad)}
+  .succeeded{color:var(--ok)} .failed{color:var(--bad)} .partial{color:var(--warn)}
+  .sigs { display:flex; flex-wrap:wrap; gap:.4rem; margin:.6rem 0 .25rem; }
+  .sig { font-size:.74rem; padding:.15rem .5rem; border-radius:5px;
+         border:1px solid var(--line); display:inline-flex; gap:.3rem; align-items:baseline; }
+  .sig-wired{color:var(--ok)} .sig-not_wired{color:var(--muted)}
+  .sig-na{color:var(--muted)} .sig-bad{color:var(--warn); border-color:var(--warn)}
+  .sigwhy { color:var(--muted); font-size:.92em; }
+  .sigcap { font-size:.72rem; color:var(--muted); margin:0 0 .2rem; font-style:italic; }
+  .drift { font-size:.78rem; color:var(--warn); background:var(--warnbg);
+           border-left:3px solid var(--warn); padding:.4rem .6rem;
+           border-radius:0 4px 4px 0; margin:.6rem 0 0; }
   .summary { white-space:pre-wrap; font-size:.85rem; color:var(--fg); margin:.6rem 0 0;
              max-height:16em; overflow:auto; }
   .files { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.78rem;
@@ -138,11 +155,61 @@
       </label>
     </div>
 
-    <label>
-      <span class="lbl">Base branch</span>
-      <span class="hint">Branch to start from, and the target of the PR/MR. Leave blank to use the repository's default branch — worth checking, since many repos default to <code>development</code> rather than <code>main</code>.</span>
-      <input name="baseBranch" placeholder="leave blank for the repo default">
-    </label>
+    <div class="row">
+      <label>
+        <span class="lbl">Base branch</span>
+        <span class="hint">Branch to start from, and the target of the PR/MR. Leave blank to use the repository's default branch — worth checking, since many repos default to <code>development</code> rather than <code>main</code>.</span>
+        <input name="baseBranch" placeholder="leave blank for the repo default">
+      </label>
+      <label>
+        <span class="lbl">Environment this branch deploys to</span>
+        <span class="hint">Sets <code>OTEL_DEPLOYMENT_ENVIRONMENT</code>. Branch-to-environment mapping is a convention — nothing in the repo states it, so the agent cannot work it out.</span>
+        <select name="environment">
+          <option value="">Not sure / use a placeholder</option>
+          <option value="development">development</option>
+          <option value="staging">staging</option>
+          <option value="production">production</option>
+        </select>
+      </label>
+    </div>
+
+    <fieldset>
+      <legend>Where this service gets its environment variables</legend>
+      <p class="fshint">The agent only sees this one repository, on one branch. If the live config is somewhere else, it cannot tell — and a repo often still contains deployment files that <em>look</em> current but are dead. Answering here is what turns “set these variables somewhere” into an instruction someone can act on.</p>
+      <label>
+        <span class="lbl">Config location</span>
+        <select name="deploymentConfig" id="depCfg">
+          <option value="unknown">Not sure</option>
+          <option value="in_repo">In this repository</option>
+          <option value="other_repo">Another repository (GitOps / Helm values)</option>
+          <option value="secret_manager">A secret manager or platform console</option>
+        </select>
+      </label>
+      <label id="depLocWrap" hidden>
+        <span class="lbl">Where, exactly</span>
+        <span class="hint">Repo, file and key. The agent quotes this verbatim in the pull request so whoever owns that config knows precisely what to edit.</span>
+        <input name="deploymentConfigLocation" placeholder="infra-config.git → charts/orders/values-dev.yaml, key secretEnv">
+        <span class="warn">Written to <code>.observability/service.json</code> and <strong>committed to your repository</strong>. Leave blank if naming that location is sensitive — the agent will still produce a generic handoff.</span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>What to wire</legend>
+      <p class="fshint">Traces and metrics are always included — they come from a single SDK initialisation, so there is no such thing as one without the other. These two are genuine choices.</p>
+      <label class="check">
+        <input type="checkbox" name="wantLogs" value="1" checked>
+        <span><strong>Correlated logs</strong><br><span class="hint">Log lines carrying the <code>trace_id</code> that joins them to their trace. If your service logs through a framework access logger, this changes your log format — which is why it is a choice and not a default.</span></span>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="wantRum" value="1" id="wantRum">
+        <span><strong>Browser / RUM</strong><br><span class="hint">Page-load traces, Core Web Vitals and JS errors — what the user experienced, as opposed to what the server did. Only for apps that serve a UI, and only if the platform publishes a browser ingest endpoint.</span></span>
+      </label>
+      <label id="appUrlWrap" hidden>
+        <span class="lbl">Public URL of the deployed app</span>
+        <span class="hint">Needed so the platform operator can add that origin to the browser receiver's CORS allowlist — without it the browser's exports are rejected before they leave the page. The agent cannot do this part; it repeats the URL in the pull request for whoever can.</span>
+        <input name="appUrl" placeholder="https://app.example.com">
+      </label>
+    </fieldset>
 
     <label id="tokWrap" hidden>
       <span class="lbl">Access token</span>
@@ -161,11 +228,27 @@ const jobsEl = document.getElementById('jobs');
 const tokWrap = document.getElementById('tokWrap');
 f.mode.addEventListener('change', () => { tokWrap.hidden = f.mode.value !== 'pr'; });
 
+// Both conditionals ask for something only meaningful once the answer above
+// makes it meaningful: where the config lives, and the origin an operator must
+// allowlist. Asking either unconditionally is how a form teaches people to skip.
+const depLocWrap = document.getElementById('depLocWrap');
+const appUrlWrap = document.getElementById('appUrlWrap');
+f.deploymentConfig.addEventListener('change', () => {
+  depLocWrap.hidden = f.deploymentConfig.value === 'in_repo'
+                   || f.deploymentConfig.value === 'unknown';
+});
+f.wantRum.addEventListener('change', () => { appUrlWrap.hidden = !f.wantRum.checked; });
+
 f.addEventListener('submit', async (e) => {
   e.preventDefault();
   const body = Object.fromEntries(
     [...new FormData(f).entries()].filter(([, v]) => String(v).trim() !== '')
   );
+  // A conditional field the user filled in and then hid by changing the answer
+  // above it is stale. Dropping it here matters because these end up committed
+  // to the client's repo in .observability/service.json.
+  if (depLocWrap.hidden) delete body.deploymentConfigLocation;
+  if (appUrlWrap.hidden) delete body.appUrl;
   f.go.disabled = true;
   try {
     const r = await fetch('/api/jobs', {
@@ -182,16 +265,51 @@ f.addEventListener('submit', async (e) => {
 
 function esc(s){ return String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])); }
 
+// The agent never runs the application, so `wired` means the code path is in the
+// diff — never that telemetry arrives. The labels say so, because a green tick
+// that quietly means something weaker than the reader assumes is worse than no
+// tick at all. Confirming delivery is the verify skill's job.
+const SIGNAL_LABEL = { traces:'traces', metrics:'metrics', logs:'logs', rum:'RUM' };
+const STATE_MARK = { wired:'✓', not_wired:'✗', 'n/a':'–' };
+
+function signalsRow(j) {
+  const r = j.result;
+  if (!r) return '';
+  if (r.signals === null || r.signals === undefined) {
+    // Visible drift, not a silent pass. An unreported run is exactly the
+    // failure this contract exists to surface.
+    return j.status === 'succeeded'
+      ? `<p class="drift">agent did not report signal coverage for this run</p>` : '';
+  }
+  const req = new Set(r.signals_requested ?? []);
+  const cells = Object.keys(SIGNAL_LABEL).map(k => {
+    const s = r.signals[k];
+    if (!s) return '';
+    const state = s.state ?? 'not_wired';
+    const missed = req.has(k) && state !== 'wired';
+    return `<span class="sig ${missed ? 'sig-bad' : 'sig-' + state.replace('/', '')}">`
+         + `${STATE_MARK[state] ?? '?'} ${SIGNAL_LABEL[k]}`
+         + `${s.reason ? `<span class="sigwhy">${esc(s.reason)}</span>` : ''}</span>`;
+  }).join('');
+  return `<div class="sigs">${cells}</div>
+          <p class="sigcap">present in the diff — not verified against the platform; run the verify skill after applying.</p>`;
+}
+
 function render(jobs) {
   jobsEl.innerHTML = jobs.map(j => `
     <div class="job">
       <header>
         <span class="repo">${esc(j.repoUrl)}</span>
-        <span class="badge ${j.status}">${j.result?.noChanges ? 'nothing to onboard' : j.status}</span>
+        <span class="badge ${j.result?.partial ? 'partial' : j.status}">${
+          j.result?.noChanges ? 'nothing to onboard'
+          : j.result?.partial ? 'partial'
+          : j.status}</span>
         ${j.serviceName ? `<span class="badge">${esc(j.serviceName)}</span>` : ''}
+        ${j.environment ? `<span class="badge">${esc(j.environment)}</span>` : ''}
         <span class="badge">${j.mode}</span>
         <span class="badge">${esc(j.provider ?? '')}</span>
       </header>
+      ${signalsRow(j)}
       ${j.result?.files_changed?.length
         ? `<p class="files">${j.result.files_changed.map(esc).join('  ·  ')}</p>` : ''}
       ${j.result?.summary ? `<p class="summary">${esc(j.result.summary)}</p>` : ''}

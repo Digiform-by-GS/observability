@@ -5,6 +5,30 @@ import type { Provider } from './providers.js';
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 export type DeliveryMode = 'patch' | 'pr';
 
+/** Where the service actually reads its env in the target environment. */
+export type DeploymentConfig = 'in_repo' | 'other_repo' | 'secret_manager' | 'unknown';
+export type Signal = 'traces' | 'metrics' | 'logs' | 'rum';
+export type SignalState = 'wired' | 'not_wired' | 'n/a';
+
+export const SIGNALS: readonly Signal[] = ['traces', 'metrics', 'logs', 'rum'];
+export const DEPLOYMENT_CONFIGS: readonly DeploymentConfig[] = [
+  'in_repo',
+  'other_repo',
+  'secret_manager',
+  'unknown',
+];
+
+export interface SignalReport {
+  /**
+   * `wired` means the code path is present in the diff — NOT that telemetry
+   * arrives. The agent never runs the application, so it cannot know that;
+   * confirming delivery is the verify skill's job. Any UI built on this must
+   * not imply otherwise.
+   */
+  state: SignalState;
+  reason?: string | null;
+}
+
 export interface JobRequest {
   repoUrl: string;
   provider: Provider;
@@ -12,6 +36,20 @@ export interface JobRequest {
   serviceName?: string;
   team?: string;
   baseBranch?: string;
+  /**
+   * The questionnaire. Each of these is something the agent cannot learn by
+   * reading the repository — which is the only test a question has to pass to
+   * earn a slot on the form. They improve the precision of what the agent hands
+   * back; they are NOT the safety mechanism. The rule that stops it editing a
+   * dead Helm chart lives in the skill, because a form field can be skipped and
+   * `unknown` is what most people will send.
+   */
+  deploymentConfig?: DeploymentConfig;
+  /** Free text: repo, file and key. Committed to the client's repo — see server.ts. */
+  deploymentConfigLocation?: string;
+  environment?: string;
+  signals?: Signal[];
+  appUrl?: string;
   /**
    * Never stored on the Job record and never written to disk — it is handed to
    * the container as an environment variable and dropped. Persisting a
@@ -29,6 +67,26 @@ export interface JobResult {
   cost_usd?: number | null;
   pull_request?: string | null;
   base_sha?: string;
+  /** Which runner image produced this. Written by run-job.sh. */
+  runner_revision?: string;
+  /**
+   * Per-signal coverage, validated and clamped in run-job.sh before it gets
+   * here — the agent writes it, so it is never trusted verbatim.
+   * `null` means the agent did not report at all, which the UI shows as drift
+   * rather than swallowing: an unreported run is the exact failure this
+   * contract exists to make visible.
+   */
+  signals?: Record<Signal, SignalReport> | null;
+  signals_requested?: Signal[];
+  /**
+   * A signal the client asked for is not wired. Deliberately a quality verdict
+   * on the diff, NOT a JobStatus: `status` is the lifecycle (queued → running →
+   * terminal), and overloading it would make `succeeded` stop meaning "ran to
+   * completion" for every consumer. `noChanges` already set this precedent —
+   * run-job.sh emits `no_changes` and runner.ts converts it to a result field
+   * while the status stays `succeeded`.
+   */
+  partial?: boolean;
 }
 
 export interface Job {
@@ -39,6 +97,15 @@ export interface Job {
   mode: DeliveryMode;
   serviceName?: string;
   team?: string;
+  /**
+   * Only the non-sensitive half of the questionnaire is kept on the record.
+   * `deploymentConfigLocation` and `appUrl` are deliberately absent: they name
+   * internal infrastructure, and GET /api/jobs is unauthenticated even when
+   * API_KEY is set (see the auth middleware in server.ts). They reach the
+   * container as env vars and are dropped, like gitToken.
+   */
+  environment?: string;
+  signals?: Signal[];
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;
@@ -67,6 +134,8 @@ export class JobStore {
       mode: req.mode,
       ...(req.serviceName ? { serviceName: req.serviceName } : {}),
       ...(req.team ? { team: req.team } : {}),
+      ...(req.environment ? { environment: req.environment } : {}),
+      ...(req.signals?.length ? { signals: req.signals } : {}),
       createdAt: new Date().toISOString(),
       hasPatch: false,
     };
