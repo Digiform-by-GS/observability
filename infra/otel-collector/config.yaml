@@ -124,15 +124,22 @@ processors:
         action: delete
 
 exporters:
+  # The catch-all tenant. The laptop stack runs the same tenancy as the platform
+  # so that a developer exercises the real write path, rather than discovering
+  # at deploy time that their service never set a team.
   otlp_http/logs:
     endpoint: http://loki:3100/otlp
     tls:
       insecure: true
+    headers:
+      X-Scope-OrgID: unattributed
 
   otlp_http/traces:
     endpoint: http://tempo:4318
     tls:
       insecure: true
+    headers:
+      X-Scope-OrgID: unattributed
 
   prometheus_remote_write:
     endpoint: http://mimir:9009/api/v1/push
@@ -140,6 +147,8 @@ exporters:
       insecure: true
     resource_to_telemetry_conversion:
       enabled: true
+    headers:
+      X-Scope-OrgID: unattributed
 
 extensions:
   health_check:

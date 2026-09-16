@@ -1,5 +1,21 @@
 stream_over_http_enabled: true
 
+# Partition traces by tenant, read from X-Scope-OrgID.
+#
+# ORDERING MATTERS AND THIS ONE MUST LAND BEFORE MIMIR'S. Tempo's metrics
+# generator adds X-Scope-OrgID to its own remote_write to Mimir, but ONLY in
+# multi-tenant mode; single-tenant, it deliberately sends no header at all. So
+# enabling multitenancy on Mimir first makes every span-metric and service-graph
+# write 401. The collector is not in that write path, so no exporter metric and
+# no existing alert would fire - every RED dashboard simply goes quiet while
+# looking calm, and the only evidence is a line in this container's log.
+#
+# For the same reason, do NOT add a `headers:` block to metrics_generator's
+# remote_write below. Tempo honours an operator-set header and refuses to
+# overwrite it, logging only at Info - which would land every tenant's generator
+# metrics in one hardcoded Mimir tenant, silently.
+multitenancy_enabled: true
+
 server:
   http_listen_port: 3200
   log_level: info
@@ -46,6 +62,15 @@ storage:
       path: /var/tempo/blocks
 
 overrides:
+  # Per-tenant limits, hot-reloaded on the period below - no restart. Generated
+  # from infra/tenants.yaml by scripts/gen-tenants.py.
+  #
+  # The loader is STRICT: one unknown key is a hard load failure, not a warning,
+  # which is why that file is generated rather than hand-edited.
+  per_tenant_override_config: /etc/tempo/overrides.yaml
+  per_tenant_override_period: 10s
+
+  # Fallback for any tenant with no entry in the file above.
   defaults:
     metrics_generator:
       processors: [service-graphs, span-metrics, local-blocks]
