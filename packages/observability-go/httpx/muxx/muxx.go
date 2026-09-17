@@ -4,8 +4,14 @@
 // Server span names become metric label values in Tempo's span-metrics
 // generator, and every distinct name multiplies by the latency histogram's
 // bucket count. Unbounded names therefore do not degrade the offending service
-// - they fill Mimir, and Mimir then rejects metric writes for EVERY tenant on
-// the platform. One team's routing mistake takes out everyone's dashboards.
+// in the usual way - they exhaust its metric quota, and once a team is over its
+// cap Mimir rejects its metric writes outright. Every dashboard, alert and
+// service-graph node belonging to that team goes blank, and the service itself
+// carries on looking healthy because nothing in the request path fails.
+//
+// On a platform with per-tenant limits the blast radius stops at the team that
+// made the mistake. It did not always: before tenancy, one team's routing
+// mistake took out everyone's dashboards.
 //
 // gorilla/mux is the worst of the supported routers on this point and the
 // reason this package exists. otelmux's default formatter returns the route

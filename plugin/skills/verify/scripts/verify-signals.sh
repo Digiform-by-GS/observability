@@ -22,6 +22,25 @@ field() {
   else sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$CFG" | head -1; fi
 }
 OTLP="$(field otlp_http)"; GRAFANA="$(field grafana)"
+# Which tenant this service's telemetry should land in. Optional: absent means
+# the platform is single-tenant, or nobody recorded a team, and the placement
+# checks at the end are skipped.
+#
+# Read from service.json rather than platform.json, and from `team` rather than
+# a separate `tenant` key, because on this platform the tenant IS the team - the
+# collector routes on the `team` resource attribute, so a second name for the
+# same thing could only ever disagree with it. platform.json is also the wrong
+# home: it holds platform-wide endpoints and is rewritten wholesale on every
+# onboarding run, whereas this is a property of one service.
+SVC_CFG=".observability/service.json"
+TENANT=""
+if [ -f "$SVC_CFG" ]; then
+  if command -v jq >/dev/null 2>&1; then
+    TENANT="$(jq -r '.team // empty' "$SVC_CFG")"
+  else
+    TENANT="$(sed -n 's/.*"team"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SVC_CFG" | head -1)"
+  fi
+fi
 if [ -z "$OTLP" ] || [ -z "$GRAFANA" ]; then
   echo "ERROR: otlp_http/grafana missing from $CFG"; exit 2
 fi
@@ -45,7 +64,14 @@ echo "service=$SVC trace=$TID"
 echo
 
 # --- push -------------------------------------------------------------------
-RES="{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"$SVC\"}}]}"
+# The team attribute is what the platform routes on, so a test push without it
+# proves only that the pipeline works - never that THIS service's telemetry goes
+# where it should. With it, the read-back below can tell "arrived" apart from
+# "arrived in the right tenant", which is the whole difference between a working
+# onboarding and one whose team name is misspelled.
+TEAM_ATTR=""
+[ -n "$TENANT" ] && TEAM_ATTR=",{\"key\":\"team\",\"value\":{\"stringValue\":\"$TENANT\"}}"
+RES="{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"$SVC\"}}$TEAM_ATTR]}"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$OTLP/v1/traces" -H 'content-type: application/json' -d "{
  \"resourceSpans\":[{\"resource\":$RES,\"scopeSpans\":[{\"spans\":[{
@@ -110,6 +136,35 @@ if echo "$body" | grep -q "verify_signals_total"; then
   note "metric read back (Mimir)" "OK"
 else
   bad "metric read back (Mimir)" "series not found (queried verify_signals_total)"
+fi
+
+# --- tenant placement --------------------------------------------------------
+# Only meaningful on a multi-tenant platform, hence conditional on the field.
+#
+# The negative half is the point. Grafana's datasource reads every tenant at
+# once, so telemetry that routed to the WRONG tenant still appears in every
+# dashboard and every check above - it just quietly shares another team's quota
+# and shows up under their name on the per-tenant panels. There is no error
+# anywhere. Asserting it is absent from the catch-all is the only way to tell.
+if [ -n "$TENANT" ]; then
+  echo
+  q_tenant() {
+    curl -s "${AUTH[@]}" --get "$PROXY/prometheus/api/v1/query"       --data-urlencode "query=verify_signals_total{service_name=\"$SVC\",__tenant_id__=\"$1\"}"
+  }
+  # __tenant_id__ is added by Mimir's tenant federation when a query spans more
+  # than one tenant, which the provisioned datasource always does.
+  if q_tenant "$TENANT" | grep -q "verify_signals_total"; then
+    note "metric landed in tenant '$TENANT'" "OK"
+  else
+    bad "metric landed in tenant '$TENANT'"         "not found under that tenant - the platform may not know this team yet"
+  fi
+  if [ "$TENANT" != "unattributed" ]; then
+    if q_tenant unattributed | grep -q "verify_signals_total"; then
+      bad "metric is NOT in the catch-all"           "also present in 'unattributed' - routing did not match '$TENANT'"
+    else
+      note "metric is NOT in the catch-all" "OK"
+    fi
+  fi
 fi
 
 echo

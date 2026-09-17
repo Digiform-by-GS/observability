@@ -282,8 +282,12 @@ TLS). None of that is acceptable in a shared cluster:
 - **TLS** between apps↔collector↔backends (OTLP supports TLS; drop `insecure`).
 - **Grafana auth** — disable anonymous, wire OIDC (this is where a Keycloak,
   once deployed, secures the telemetry describing your apps).
-- **Multi-tenancy** — Loki/Mimir/Tempo support tenant isolation via
-  `X-Scope-OrgID`; the dev stack disables it.
+- **Multi-tenancy** — Loki/Mimir/Tempo isolate tenants via `X-Scope-OrgID`, and
+  the shared platform deployment now uses it: one tenant per team, derived by
+  the collector from the `team` resource attribute, with per-tenant limits in
+  `infra/tenants.yaml`. Note this is isolation of STORAGE AND QUOTA, not access
+  — Grafana OSS has no datasource permissions, so one shared Grafana still reads
+  every tenant. `docker-compose.yml` on its own remains single-tenant.
 - **NetworkPolicies** — only apps may reach the collector; only the collector
   and Grafana may reach the backends; nothing reaches storage credentials.
 - **Secrets** — object-storage keys and datasource credentials via `Secret`

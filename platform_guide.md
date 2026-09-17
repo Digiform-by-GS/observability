@@ -67,14 +67,16 @@ those attributes vary per *user* rather than per service: `user_agent.original`
 is one distinct value per browser build, and `session.id` is unbounded by
 definition. Either can multiply the browser metric set by thousands.
 
-Mimir's `max_global_series_per_user` is **global** on this single-tenant
-deployment, so exceeding it rejects metric writes for **every service on the
-platform**, not only the frontend that caused it. Traces and logs keep all of
-these attributes — that detail is exactly what you want when debugging one
+`max_global_series_per_user` is now **per tenant**, so exceeding it rejects
+metric writes for that team only — it used to reject them for every service on
+the platform. Caps live in `infra/tenants.yaml`. Traces and logs keep all of
+these attributes anyway: that detail is exactly what you want when debugging one
 user's session, and neither Tempo nor Loki indexes it the way Mimir does.
 
-Watch `sum(cortex_ingester_memory_series)` after onboarding the first browser
-app; the existing alert fires at 70% of the cap.
+Watch the **Per-tenant** section of the Platform Health dashboard after
+onboarding the first browser app. The per-tenant alert fires at 80% of that
+team's own cap; the remaining platform-wide alert is an OOM guard on the total,
+which no per-tenant limit protects.
 
 ## Onboarding a service
 
@@ -86,7 +88,7 @@ your app.
 ```bash
 export OTEL_SERVICE_NAME=orders                             # required
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://20.20.1.88:4318   # the shared platform
-export OTEL_RESOURCE_ATTRIBUTES=team=payments               # optional, recommended
+export OTEL_RESOURCE_ATTRIBUTES=team=payments               # REQUIRED — routes your telemetry
 ```
 
 **Go** — identical; the module shares the env-var contract.
@@ -95,8 +97,17 @@ export OTEL_RESOURCE_ATTRIBUTES=team=payments               # optional, recommen
 log query and service-graph node is keyed on. Pick the name once and keep it
 stable — renaming it later splits your history into two unrelated services.
 
-Add `OTEL_RESOURCE_ATTRIBUTES=team=<yours>` so telemetry can be attributed when
-several teams share the platform.
+`OTEL_RESOURCE_ATTRIBUTES=team=<yours>` **decides which tenant stores your
+telemetry**, so it is no longer optional and the spelling has to match the
+platform's tenant manifest exactly.
+
+Getting it wrong does not fail. An unrecognised team is accepted and stored in a
+shared catch-all tenant, and it looks entirely correct in Grafana because the
+datasources read every tenant at once. What you lose is the isolation: you share
+a quota with every other unrouted service, and your data shows up under the
+catch-all's name on the per-tenant panels. Ask the platform operator which team
+name to use rather than guessing, and run the verify skill afterwards — it
+checks placement explicitly, which is the only way to see this.
 
 Profiling is opt-in and bypasses the collector entirely (OTLP profiling is still
 experimental, so the SDK pushes directly):
