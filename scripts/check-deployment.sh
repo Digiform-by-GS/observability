@@ -104,9 +104,6 @@ else
   fi
 fi
 
-say ""
-say "=== running containers vs config on disk ==="
-
 # A bind-mounted config edited after a container started is live on disk and
 # stale in the process. `docker compose restart` does not fix a port change
 # either - only a recreate does - so this reports rather than guesses.
@@ -116,20 +113,46 @@ say "=== running containers vs config on disk ==="
 # people to ignore the check. A drift report is worth nothing if it cries wolf.
 configs_for() {
   case "$1" in
-    # tenants.platform.yaml is listed because the collector reads it at STARTUP
-    # and a new tenant does not take effect until it is restarted. The backend
-    # runtime-override files are deliberately NOT listed: those hot-reload on a
-    # 10s period, so flagging them would report drift every time a cap changed
-    # without a restart - a false positive, and the kind that teaches people to
-    # ignore this script.
-    otel-collector) echo "docker-compose.yml docker-compose.platform.yml infra/otel-collector/config.platform.yaml infra/otel-collector/tenants.platform.yaml" ;;
-    grafana)        echo "docker-compose.yml docker-compose.platform.yml infra/grafana/grafana.ini infra/grafana/provisioning" ;;
-    tempo)          echo "docker-compose.yml docker-compose.platform.yml infra/tempo/tempo-config.yaml" ;;
-    loki)           echo "docker-compose.yml docker-compose.platform.yml infra/loki/loki-config.yaml" ;;
-    mimir)          echo "docker-compose.yml docker-compose.platform.yml infra/mimir/mimir-config.yaml" ;;
-    *)              echo "docker-compose.yml docker-compose.platform.yml" ;;
+    otel-collector) echo "infra/otel-collector/config.platform.yaml infra/otel-collector/tenants.platform.yaml" ;;
+    grafana)        echo "infra/grafana/grafana.ini infra/grafana/provisioning" ;;
+    tempo)          echo "infra/tempo/tempo-config.yaml" ;;
+    loki)           echo "infra/loki/loki-config.yaml" ;;
+    mimir)          echo "infra/mimir/mimir-config.yaml" ;;
+    *)              echo "" ;;
   esac
 }
+
+# The compose files USED to be in every list above, which meant one edit to
+# docker-compose.platform.yml reported all five backends as drifted even when
+# only the collector's definition had changed. That is a false positive, and
+# this script's whole value depends on not producing them.
+#
+# Compose can answer the question exactly: it hashes each service's resolved
+# definition and stores it on the container, so --dry-run reports precisely
+# which services it would recreate and which are already correct. Use that for
+# definition drift, and keep the mtime comparison above for the thing compose
+# does NOT see - the CONTENTS of a bind-mounted config file, which can change
+# under a running container without its definition changing at all.
+say ""
+say "=== service definitions vs compose files ==="
+if ! docker compose version >/dev/null 2>&1; then
+  say "  [skip]  docker compose not available"
+else
+  COMPOSE_FILES="-f docker-compose.yml -f docker-compose.platform.yml"
+  # --dry-run prints one line per service. A service already correct says
+  # "Running"; one compose intends to change says "Recreate"/"Creating".
+  PLAN="$(docker compose $COMPOSE_FILES --dry-run up -d 2>&1 \
+          | grep -iE "recreat|Container .* (Creating|Starting)" || true)"
+  if [ -n "$PLAN" ]; then
+    warn "compose would change these services - their definitions have drifted:"
+    [ "$QUIET" -eq 1 ] || printf '%s\n' "$PLAN" | head -8 | sed 's/^/            /'
+  else
+    ok "every service matches its compose definition"
+  fi
+fi
+
+say ""
+say "=== running containers vs config on disk ==="
 
 for svc in otel-collector grafana tempo loki mimir; do
   STARTED="$(docker inspect "$svc" --format '{{.State.StartedAt}}' 2>/dev/null)"
@@ -139,7 +162,12 @@ for svc in otel-collector grafana tempo loki mimir; do
   fi
   STARTED_EPOCH="$(date -d "$STARTED" +%s 2>/dev/null || echo 0)"
   NEWER=""
-  for path in $(configs_for "$svc"); do
+  CFGS="$(configs_for "$svc")"
+  if [ -z "$CFGS" ]; then
+    say "  [skip]  $svc has no bind-mounted config"
+    continue
+  fi
+  for path in $CFGS; do
     [ -e "$path" ] || continue
     MTIME="$(find "$path" -newermt "@$STARTED_EPOCH" -print -quit 2>/dev/null)"
     [ -n "$MTIME" ] && NEWER="$NEWER $path"
