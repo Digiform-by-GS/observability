@@ -116,7 +116,13 @@ say "=== running containers vs config on disk ==="
 # people to ignore the check. A drift report is worth nothing if it cries wolf.
 configs_for() {
   case "$1" in
-    otel-collector) echo "docker-compose.yml docker-compose.platform.yml infra/otel-collector/config.platform.yaml" ;;
+    # tenants.platform.yaml is listed because the collector reads it at STARTUP
+    # and a new tenant does not take effect until it is restarted. The backend
+    # runtime-override files are deliberately NOT listed: those hot-reload on a
+    # 10s period, so flagging them would report drift every time a cap changed
+    # without a restart - a false positive, and the kind that teaches people to
+    # ignore this script.
+    otel-collector) echo "docker-compose.yml docker-compose.platform.yml infra/otel-collector/config.platform.yaml infra/otel-collector/tenants.platform.yaml" ;;
     grafana)        echo "docker-compose.yml docker-compose.platform.yml infra/grafana/grafana.ini infra/grafana/provisioning" ;;
     tempo)          echo "docker-compose.yml docker-compose.platform.yml infra/tempo/tempo-config.yaml" ;;
     loki)           echo "docker-compose.yml docker-compose.platform.yml infra/loki/loki-config.yaml" ;;

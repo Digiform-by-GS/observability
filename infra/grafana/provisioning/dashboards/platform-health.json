@@ -107,8 +107,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Mimir active series (cap 150k)",
-      "description": "max_global_series_per_user is 150000 and is GLOBAL on this single-tenant deployment. Past it, Mimir rejects writes for every service on the platform. The alert fires at 105k (70%).",
+      "title": "Mimir active series, all tenants",
+      "description": "The TOTAL across tenants. Since tenancy landed this is about Mimir's memory rather than any one team's quota - no per-tenant limit protects the box from the sum of the caps being raised past what 2 GiB holds. For whose quota is at risk, see the per-tenant panels below.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -369,7 +369,7 @@
     {
       "type": "timeseries",
       "title": "Writes discarded by a backend",
-      "description": "A backend can be UP and still refusing writes \u2014 over a limit, malformed data, or a tenant past its cap. Invisible from the up/down panel alone.",
+      "description": "A backend can be UP and still refusing writes. Broken out by tenant because that is now the blast radius: Mimir labels it `user`, Loki and Tempo label it `tenant`, and `reason` names the limit that was hit.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -442,10 +442,10 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (__name__) (rate({__name__=~\"cortex_discarded_samples_total|loki_discarded_samples_total|tempo_discarded_spans_total\"}[5m]))",
+          "expr": "sum by (user, tenant, reason) (rate({__name__=~\"cortex_discarded_samples_total|loki_discarded_samples_total|tempo_discarded_spans_total\"}[5m]))",
           "refId": "A",
           "range": true,
-          "legendFormat": "{{__name__}}"
+          "legendFormat": "{{user}}{{tenant}} - {{reason}}"
         }
       ]
     },
@@ -623,6 +623,361 @@
           "refId": "A",
           "range": true,
           "legendFormat": "{{service_instance_id}}"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "title": "Per-tenant",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "One team's cardinality can no longer reject another team's writes. These panels say **whose** quota is at risk, while the damage is still confined to them. Tenants and their caps live in `infra/tenants.yaml`."
+      },
+      "transparent": true
+    },
+    {
+      "type": "timeseries",
+      "title": "Series used against each tenant's own cap",
+      "description": "A ratio, not an absolute, because the caps differ per tenant - 30k for the catch-all, 10k for platform. cortex_limits_overrides comes from Mimir's overrides-exporter, and ONLY for tenants with an explicit runtime-config entry, which is why gen-tenants.py writes one for every tenant even at the default. The alert fires at 80%.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 1.0
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max by (user) (cortex_ingester_active_series) / on (user) group_left max by (user) (cortex_limits_overrides{limit_name=\"max_global_series_per_user\"})",
+          "refId": "A",
+          "range": true,
+          "legendFormat": "{{user}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Active series per tenant",
+      "description": "The absolute counts behind the ratio. One tenant climbing while the others stay flat is usually a single service with an unbounded label value, not organic growth.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "cortex_ingester_active_series",
+          "refId": "A",
+          "range": true,
+          "legendFormat": "{{user}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingest volume per tenant, measured at the collector",
+      "description": "One exporter per tenant, so this is the only direct evidence that the routing table does what it says. Until routing is enabled every tenant shares one exporter and this shows a single line.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (exporter) (rate(otelcol_exporter_sent_metric_points_total[5m]))",
+          "refId": "A",
+          "range": true,
+          "legendFormat": "{{exporter}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Catch-all tenant",
+      "description": "A CLIMB HERE IS A BOTCHED ONBOARDING. Telemetry with no `team` attribute, or a team not in the manifest, is accepted and stored here on a shared quota - correctly, silently, with no error anywhere. A steady population is expected: browser RUM and the verify skill's own pushes live here permanently.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "cortex_ingester_active_series{user=\"unattributed\"}",
+          "refId": "A",
+          "range": true,
+          "legendFormat": "unattributed"
         }
       ]
     }

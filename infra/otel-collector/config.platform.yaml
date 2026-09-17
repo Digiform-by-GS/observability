@@ -188,32 +188,20 @@ exporters:
   # why it lands first and on its own: the write path can be proven end to end
   # before any flag makes the change irreversible.
   #
+  # Only the TRACES exporter writes a fixed tenant now. Logs and metrics go
+  # through the routing connectors in tenants.platform.yaml, which pick the
+  # tenant per resource; their per-tenant exporters live in that file.
+  #
   # `unattributed` is the catch-all tenant, and it is permanent rather than a
   # migration artifact. The verify skill pushes as verify-<user>-<date> with no
   # team attribute and lands here forever, as does every service not yet
   # onboarded. Once routing lands (phase 2) this stays as the default route.
   #
   # Tenants are defined in infra/tenants.yaml. Do not invent one here.
-  otlp_http/logs:
-    endpoint: http://loki:3100/otlp
-    tls:
-      insecure: true
-    headers:
-      X-Scope-OrgID: unattributed
-
   otlp_http/traces:
     endpoint: http://tempo:4318
     tls:
       insecure: true
-    headers:
-      X-Scope-OrgID: unattributed
-
-  prometheus_remote_write:
-    endpoint: http://mimir:9009/api/v1/push
-    tls:
-      insecure: true
-    resource_to_telemetry_conversion:
-      enabled: true
     headers:
       X-Scope-OrgID: unattributed
 
@@ -250,10 +238,21 @@ service:
                 host: 0.0.0.0
                 port: 8888
   pipelines:
+    # logs and metrics export into a ROUTING CONNECTOR rather than straight to a
+    # backend. The connector fans them out by the `team` resource attribute to
+    # one exporter per tenant, all of which live in tenants.platform.yaml -
+    # generated from infra/tenants.yaml and merged in by a second --config flag.
+    # Anything with no matching team goes to the catch-all, never dropped.
+    #
+    # TRACES ARE DELIBERATELY NOT ROUTED. Tempo's metrics generator pairs spans
+    # within one trace within one tenant, so splitting a cross-team trace would
+    # permanently destroy the service-graph edge between those teams - and
+    # federation cannot recover a metric that was never written. Blast Radius is
+    # built on exactly that edge.
     logs:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlp_http/logs]
+      exporters: [routing/logs]
     traces:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
@@ -261,7 +260,7 @@ service:
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, resource, resource/prune-metric-labels, batch]
-      exporters: [prometheus_remote_write]
+      exporters: [routing/metrics]
 
     # Platform self-monitoring rides a SEPARATE pipeline, following the same
     # reasoning the infra pipeline used: a stalled scrape must not apply
@@ -289,8 +288,8 @@ service:
     logs/browser:
       receivers: [otlp/browser]
       processors: [memory_limiter, resource, batch]
-      exporters: [otlp_http/logs]
+      exporters: [routing/logs]
     metrics/browser:
       receivers: [otlp/browser]
       processors: [memory_limiter, resource, resource/prune-browser-labels, batch]
-      exporters: [prometheus_remote_write]
+      exporters: [routing/metrics]
