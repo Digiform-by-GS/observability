@@ -43,8 +43,18 @@ defaults:
     max_global_streams_per_user: 1500
     ingestion_rate_mb: 2
   tempo:
-    ingestion_rate_limit_bytes: 2000000
-    ingestion_max_traces_per_user: 2000
+    # THE WHOLE INGESTION GROUP MUST BE SET, not just the parts you want to
+    # change. Tempo's per-tenant overrides REPLACE the defaults rather than
+    # merging with them, so any field left out is zero - and a zero burst
+    # rejects every write whatever the rate says. Deploying this with
+    # burst_size_bytes missing dropped traces on the platform for ~10 minutes;
+    # the error names a rate limit, which sends you looking at the rate.
+    #
+    # These are Tempo's own defaults. They are a backstop against one tenant
+    # flooding the box, not a tuning knob - lower them only with a measurement.
+    ingestion_rate_limit_bytes: 15000000
+    ingestion_burst_size_bytes: 20000000
+    ingestion_max_traces_per_user: 10000
     metrics_generator_max_active_series: 10000
 
 tenants:
