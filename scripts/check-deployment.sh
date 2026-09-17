@@ -46,6 +46,21 @@ else
     ok "on main"
   fi
 
+  # Hand-edits to tracked files. This check exists because the tenancy rollout
+  # was hotfixed live on this host - the right call during an incident - and
+  # afterwards the script still reported "deployment matches the repository"
+  # with two config files modified, because it only ever compared commits.
+  # Config edited on the host survives until the next `git pull` reverts it
+  # without warning, which is the worst possible moment to discover it.
+  DIRTY="$(git status --porcelain --untracked-files=no 2>/dev/null)"
+  if [ -n "$DIRTY" ]; then
+    warn "tracked files modified on this host - a git pull will silently revert them:"
+    [ "$QUIET" -eq 1 ] || printf '%s\n' "$DIRTY" | head -8 | sed 's/^/            /'
+    say "            reconcile: commit them upstream, or 'git checkout --' to discard"
+  else
+    ok "no local modifications"
+  fi
+
   if [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
     BEHIND="$(git rev-list --count "HEAD..origin/main" 2>/dev/null || echo '?')"
     warn "$BEHIND commit(s) behind origin/main"
