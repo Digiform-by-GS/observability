@@ -265,13 +265,30 @@ jobs:
             || { echo "no --add-dir: a signals report written to /out would be refused"; exit 1; }
           echo "  permissions are enforced, and /out is granted explicitly"
 
-      # Every shell script in the repo, not just the plugin's. Both of these
-      # scripts report PASS/FAIL on whether telemetry is working, so a silent
-      # logic bug in one is worse than a broken build: it reports success that
-      # nobody has any reason to doubt. scripts/verify-platform.sh drifted to
-      # 8 findings precisely because it was outside this glob.
+      # DISCOVERED, not listed. This used to be two globs with a comment saying
+      # "every shell script in the repo", and it was already untrue when
+      # written: services/onboarding-agent/runner/run-job.sh matched neither -
+      # the most intricate shell here, and the only one that runs unattended
+      # against a stranger's repository. The same comment even records
+      # verify-platform.sh drifting to 8 findings "precisely because it was
+      # outside this glob", so this is the second time one script sat outside a
+      # list nobody re-read. A list of paths is a thing that goes stale; a find
+      # cannot.
+      #
+      # These scripts report PASS/FAIL on whether telemetry works, so a silent
+      # logic bug in one is worse than a broken build: it reports success nobody
+      # has reason to doubt.
       - name: shellcheck all scripts
-        run: shellcheck plugin/skills/verify/scripts/*.sh scripts/*.sh
+        run: |
+          mapfile -t SCRIPTS < <(find . -name '*.sh' -not -path './node_modules/*' | sort)
+          printf '  %s\n' "${SCRIPTS[@]}"
+          # A find that matched nothing would make this step pass while checking
+          # nothing at all - the exact failure this job exists to prevent.
+          if [ "${#SCRIPTS[@]}" -lt 4 ]; then
+            echo "only ${#SCRIPTS[@]} scripts found - the discovery is broken, not the repo"
+            exit 1
+          fi
+          shellcheck "${SCRIPTS[@]}"
 
       # Skills ship to client repos that have no access to this monorepo, and
       # must not bake in one deployment's addresses. Deployment-specific IPs or
