@@ -82,7 +82,7 @@ receivers:
               # now means they are captured then, rather than discovered missing
               # during an incident.
               regex: >-
-                cortex_ingester_memory_series|cortex_discarded_samples_total|cortex_distributor_samples_in_total|cortex_ingester_ingested_samples_failures_total|loki_discarded_samples_total|loki_discarded_bytes_total|loki_distributor_bytes_received_total|tempo_discarded_spans_total|tempo_distributor_spans_received_total|tempo_distributor_bytes_received_total|process_resident_memory_bytes
+                cortex_ingester_memory_series|cortex_discarded_samples_total|cortex_distributor_samples_in_total|cortex_ingester_ingested_samples_failures_total|loki_discarded_samples_total|loki_discarded_bytes_total|loki_distributor_bytes_received_total|tempo_discarded_spans_total|tempo_distributor_spans_received_total|tempo_distributor_bytes_received_total|cortex_limits_overrides|cortex_ingester_active_series|cortex_ingester_memory_users|loki_ingester_memory_streams|tempo_metrics_generator_registry_active_series|process_resident_memory_bytes
         - job_name: otel-collector
           scrape_interval: 30s
           # The collector scrapes itself. This is the highest-value target of
@@ -95,7 +95,7 @@ receivers:
             - source_labels: [__name__]
               action: keep
               regex: >-
-                otelcol_exporter_send_failed_.*|otelcol_exporter_enqueue_failed_.*|otelcol_exporter_queue_size|otelcol_exporter_queue_capacity|otelcol_receiver_refused_.*|otelcol_processor_dropped_.*
+                otelcol_exporter_send_failed_.*|otelcol_exporter_enqueue_failed_.*|otelcol_exporter_queue_size|otelcol_exporter_queue_capacity|otelcol_receiver_refused_.*|otelcol_processor_dropped_.*|otelcol_exporter_sent_.*
 
 processors:
   memory_limiter:
@@ -183,15 +183,30 @@ processors:
     send_batch_size: 8192
 
 exporters:
+  # X-Scope-OrgID is what Loki, Mimir and Tempo partition on. While their
+  # tenancy switches are off they IGNORE this header entirely, which is exactly
+  # why it lands first and on its own: the write path can be proven end to end
+  # before any flag makes the change irreversible.
+  #
+  # `unattributed` is the catch-all tenant, and it is permanent rather than a
+  # migration artifact. The verify skill pushes as verify-<user>-<date> with no
+  # team attribute and lands here forever, as does every service not yet
+  # onboarded. Once routing lands (phase 2) this stays as the default route.
+  #
+  # Tenants are defined in infra/tenants.yaml. Do not invent one here.
   otlp_http/logs:
     endpoint: http://loki:3100/otlp
     tls:
       insecure: true
+    headers:
+      X-Scope-OrgID: unattributed
 
   otlp_http/traces:
     endpoint: http://tempo:4318
     tls:
       insecure: true
+    headers:
+      X-Scope-OrgID: unattributed
 
   prometheus_remote_write:
     endpoint: http://mimir:9009/api/v1/push
@@ -199,6 +214,24 @@ exporters:
       insecure: true
     resource_to_telemetry_conversion:
       enabled: true
+    headers:
+      X-Scope-OrgID: unattributed
+
+  # Platform self-telemetry gets its own tenant, assigned by pipeline rather
+  # than routed by attribute: the collector's own scrape of the backends carries
+  # no `team`, and there is nothing to derive one from.
+  #
+  # It is separate so that a team's cardinality can never evict the metrics used
+  # to diagnose that team's cardinality. Losing Platform Health at exactly the
+  # moment a tenant is overrunning its cap would be the worst possible time.
+  prometheus_remote_write/platform:
+    endpoint: http://mimir:9009/api/v1/push
+    tls:
+      insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
+    headers:
+      X-Scope-OrgID: platform
 
 extensions:
   health_check:
@@ -244,7 +277,8 @@ service:
     metrics/platform:
       receivers: [prometheus/platform]
       processors: [memory_limiter, resource, batch]
-      exporters: [prometheus_remote_write]
+      # Its own tenant, not the catch-all: see the exporter comment above.
+      exporters: [prometheus_remote_write/platform]
 
     # Browser (RUM). Same exporters as everything else - a browser span is just
     # a span - but its own receiver, and for metrics its own pruning.

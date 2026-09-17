@@ -136,6 +136,53 @@ jobs:
       - name: compat.json agrees with the packages
         run: python3 scripts/check-compat.py
 
+  generated:
+    name: Generated config matches its source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # gen-tenants.py parses a manifest, so it needs a real YAML parser.
+      # check-compat.py deliberately regexes instead, but it only asserts a few
+      # values inside a file a human maintains - parsing nested structure with
+      # regex would be a parser with no error messages.
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      # Every per-tenant block across the collector, Mimir, Loki and Tempo is
+      # generated from infra/tenants.yaml. Hand-editing one of the outputs would
+      # survive review and then be silently reverted by the next generator run.
+      - name: tenant config matches the manifest
+        run: python3 scripts/gen-tenants.py --check
+
+      # This guard did not exist before, and the dashboards could already drift
+      # from their generator unnoticed. A second generator makes that worse.
+      - name: dashboards match their generator
+        run: |
+          python3 scripts/gen-dashboards.py
+          git diff --exit-code -- infra/grafana/provisioning/dashboards/ \
+            || { echo "^ dashboards differ from gen-dashboards.py output"; exit 1; }
+
+      # All three backends load their per-tenant overrides with a STRICT decoder:
+      # one unknown key is a hard load failure at runtime, not a warning. Parsing
+      # them here turns that into a failed build instead of a backend that will
+      # not start.
+      - name: per-tenant overrides parse
+        run: |
+          for f in infra/mimir/runtime.yaml infra/loki/runtime.yaml infra/tempo/overrides.yaml; do
+            python3 -c "import sys,yaml; d=yaml.safe_load(open(sys.argv[1]));
+          assert isinstance(d.get('overrides'), dict) and d['overrides'], 'no overrides map'
+          print('  ok', sys.argv[1], '->', ', '.join(sorted(d['overrides'])))" "$f"
+          done
+
+      # The decisive check: the generated fragment is only ever used merged with
+      # the base config, so validate the merge with the real collector binary at
+      # the pinned version. Catches an undefined exporter, a pipeline the routing
+      # table names but nothing defines, and a mistyped OTTL function - each of
+      # which otherwise surfaces as a collector that refuses to start on the VM.
+      - name: merged collector config is valid
+        run: ./scripts/check-collector-merge.sh
+
   plugin:
     name: Plugin (observability-onboard)
     runs-on: ubuntu-latest

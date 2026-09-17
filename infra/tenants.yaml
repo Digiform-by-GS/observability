@@ -1,0 +1,76 @@
+# The tenant manifest. This file is the ONLY place a tenant is defined; every
+# per-tenant block in the collector, Mimir, Loki and Tempo is generated from it
+# by scripts/gen-tenants.py. Edit this, run the generator, commit both.
+#
+# WHY A MANIFEST AND NOT HAND-WRITTEN CONFIG
+# A tenant costs one exporter per routed signal, one pipeline per routed signal,
+# one runtime-overrides entry per backend and one entry in every Grafana
+# datasource's federation list. That is ~10 blocks across 5 files for one line
+# of intent, and the failure mode of getting one wrong is silent: telemetry
+# lands in the catch-all and nobody notices until a cap is hit.
+#
+# TENANT = TEAM. The `team` resource attribute is already set by every onboarded
+# service (OTEL_RESOURCE_ATTRIBUTES=team=<x>), so the collector derives the
+# tenant from telemetry that already exists. No client change, no new env var,
+# and no exposure to the Go WithHeaders-replaces-env trap.
+#
+# NAMES ARE CONSTRAINED BY LOKI, not by us: alphanumerics plus ! - _ . * ' ( ),
+# at most 150 bytes, and neither "." nor "..". A team called `data/ml` is
+# rejected by Loki's distributor at WRITE time, not at config load - so the
+# generator validates names and refuses to emit rather than letting that ship.
+
+budget:
+  # Mimir holds ~150k active series in its 2 GiB limit (~3 KB/series plus the
+  # querier, compactor, store-gateway and ruler sharing the same budget). 140k
+  # leaves deliberate slack. The generator FAILS if the per-tenant caps sum past
+  # this - adding a team must be a decision about the box, not a silent
+  # oversubscription discovered as an OOM three weeks later.
+  mimir_total_series: 140000
+  # Tempo's metrics generator, not the apps, is the volatile producer: one
+  # un-templated route explodes span names. Capping generator series at half the
+  # metric budget stops that in Tempo, before it reaches Mimir.
+  tempo_generator_series_ratio: 0.5
+
+# Applied to every tenant that does not override them.
+defaults:
+  mimir:
+    max_global_series_per_user: 20000
+    # NOT the 100000 in mimir-config.yaml. That value was chosen when it was
+    # global; as a per-tenant value it allocates a circular buffer PER TENANT,
+    # so six tenants would turn a ~15 MB budget into ~90 MB.
+    max_global_exemplars_per_user: 10000
+  loki:
+    max_global_streams_per_user: 1500
+    ingestion_rate_mb: 2
+  tempo:
+    ingestion_rate_limit_bytes: 2000000
+    ingestion_max_traces_per_user: 2000
+    metrics_generator_max_active_series: 10000
+
+tenants:
+  # Platform self-telemetry. Assigned by pipeline rather than by attribute -
+  # the collector's own scrape has no `team` - and kept separate so that a
+  # team's cardinality can never evict the metrics used to diagnose it.
+  - name: platform
+    routed: false
+    description: Platform self-monitoring; the collector's own scrape of the backends.
+    limits:
+      mimir:
+        max_global_series_per_user: 10000
+
+  # The catch-all. PERMANENT infrastructure, not a migration artifact: the
+  # verify skill pushes as `verify-<user>-<date>` with no team attribute and
+  # lands here forever, as does every service not yet onboarded. Sized larger
+  # than a team because it holds browser RUM and everything unmigrated.
+  #
+  # A RISING INGEST RATE HERE IS THE ALARM that a team's `team` value is wrong.
+  - name: unattributed
+    catch_all: true
+    routed: false
+    description: Telemetry with no team attribute, or a team not listed here.
+    limits:
+      mimir:
+        max_global_series_per_user: 30000
+
+  - name: gudangsolusi
+    description: Costwise backend, frontend and workers.

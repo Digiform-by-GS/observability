@@ -6,8 +6,9 @@ datasources:
     type: loki
     access: proxy
     url: http://loki:3100
-    editable: true
+    editable: false
     jsonData:
+      httpHeaderName1: 'X-Scope-OrgID'
       timeout: 60
       maxLines: 1000
       derivedFields:
@@ -19,14 +20,22 @@ datasources:
           url: '$${__value.raw}'
           datasourceUid: tempo
           urlDisplayLabel: View Trace
+    # Every tenant this datasource may read, plus the legacy single-tenant
+    # id for data written before the cutover. Generated from
+    # infra/tenants.yaml; `gen-tenants.py --check` fails if they disagree.
+    # A TENANT MISSING HERE IS INVISIBLE IN GRAFANA while still being
+    # written, which is the quietest way to lose a team's telemetry.
+    secureJsonData:
+      httpHeaderValue1: 'platform|unattributed|gudangsolusi|fake'
 
   - name: Tempo
     uid: tempo
     type: tempo
     access: proxy
     url: http://tempo:3200
-    editable: true
+    editable: false
     jsonData:
+      httpHeaderName1: 'X-Scope-OrgID'
       httpMethod: GET
       serviceMap:
         datasourceUid: prometheus
@@ -57,13 +66,20 @@ datasources:
         hide: false
       streamingEnabled:
         search: true
+    # Every tenant this datasource may read, plus the legacy single-tenant
+    # id for data written before the cutover. Generated from
+    # infra/tenants.yaml; `gen-tenants.py --check` fails if they disagree.
+    # A TENANT MISSING HERE IS INVISIBLE IN GRAFANA while still being
+    # written, which is the quietest way to lose a team's telemetry.
+    secureJsonData:
+      httpHeaderValue1: 'platform|unattributed|gudangsolusi|single-tenant'
 
   - name: Pyroscope
     uid: pyroscope
     type: grafana-pyroscope-datasource
     access: proxy
     url: http://pyroscope:4040
-    editable: true
+    editable: false
 
   - name: prometheus
     uid: prometheus
@@ -71,8 +87,9 @@ datasources:
     access: proxy
     url: http://mimir:9009/prometheus
     isDefault: true
-    editable: true
+    editable: false
     jsonData:
+      httpHeaderName1: 'X-Scope-OrgID'
       httpMethod: POST
       timeInterval: 15s
       manageAlerts: false
@@ -83,3 +100,34 @@ datasources:
       exemplarTraceIdDestinations:
         - name: traceID
           datasourceUid: tempo
+    # Every tenant this datasource may read, plus the legacy single-tenant
+    # id for data written before the cutover. Generated from
+    # infra/tenants.yaml; `gen-tenants.py --check` fails if they disagree.
+    # A TENANT MISSING HERE IS INVISIBLE IN GRAFANA while still being
+    # written, which is the quietest way to lose a team's telemetry.
+    secureJsonData:
+      httpHeaderValue1: 'platform|unattributed|gudangsolusi|anonymous'
+
+  # Live tailing ONLY. Loki returns HTTP 400 from /loki/api/v1/tail when more
+  # than one tenant is in the header - documented and unconditional - so the
+  # federated `loki` datasource above cannot serve Explore's Live button.
+  #
+  # Pinned to the catch-all because that is where anything not yet routed lands,
+  # which is the common case for the "tail my service while I reproduce this"
+  # workflow. Tailing a routed team's logs means switching tenant here.
+  #
+  # Deliberately referenced by nothing: no dashboard, no derived field, no alert
+  # rule. It exists for interactive use in Explore and must stay that way, or a
+  # panel silently starts showing one tenant's logs while claiming to show all.
+  - name: Loki (live tail)
+    uid: loki-tail
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      timeout: 60
+      maxLines: 1000
+      httpHeaderName1: 'X-Scope-OrgID'
+    secureJsonData:
+      httpHeaderValue1: 'unattributed'
