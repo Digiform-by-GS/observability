@@ -52,10 +52,13 @@ available and you should say so rather than pointing browser code at
 `otlp_http`, where every export dies at the preflight.
 
 Commit this file — it contains no secrets, and it is how every other skill in
-this plugin (verify, dashboards) finds the platform without asking again. If the
-file later gains a `tenant` field and an API-key reference, newer platform
-versions use those; never write an actual key into this file — keys live in env
-vars or `.env` (gitignored).
+this plugin (verify, dashboards) finds the platform without asking again. Never
+write an actual key into it — keys live in env vars or `.env` (gitignored).
+
+Note what does **not** belong here: the service's tenant. On a multi-tenant
+platform the tenant is the **team**, and it lives in `service.json` (Step 0b)
+because it describes one service, while this file describes the platform and is
+identical for every repository.
 
 ## Step 0b — The four things you cannot read (`.observability/service.json`)
 
@@ -90,6 +93,7 @@ matter.
 
 ```json
 {
+  "team": "orders-team",
   "deployment_config": "other_repo",
   "deployment_config_location": "infra-config.git → charts/orders/values-dev.yaml, key secretEnv",
   "environment": "development",
@@ -210,7 +214,7 @@ Only one variable is mandatory:
 |---|---|---|
 | `OTEL_SERVICE_NAME` | **Yes** | Logical service name — see rules below |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Recommended | `otlp_http` from platform.json |
-| `OTEL_RESOURCE_ATTRIBUTES` | Recommended | `team=<the user's team>` |
+| `OTEL_RESOURCE_ATTRIBUTES` | **Yes on a multi-tenant platform** | `team=<the user's team>` — this ROUTES the telemetry, see below |
 | `OTEL_DEPLOYMENT_ENVIRONMENT` | **Yes, and different per deployment** | `development` / `staging` / `production` — see the promotion warning below |
 | `OTEL_SERVICE_VERSION` | Optional | Release tag like `1.4.2` — **never a git SHA** (each distinct value mints a full new set of metric series) |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Only if the platform requires auth | `Authorization=Bearer <key>` — the operator issues the key; keep it in `.env`/secrets, never in platform.json |
@@ -312,9 +316,22 @@ close to them:
 > value differs. If it is missed, production telemetry will be labelled as
 > whatever the previous environment was.
 
-**`OTEL_RESOURCE_ATTRIBUTES=team=<x>`** matters on a shared platform: it is how
-telemetry gets attributed when several teams share the backend. Ask for the
-team name; don't invent one.
+**`OTEL_RESOURCE_ATTRIBUTES=team=<x>` decides which tenant the telemetry is
+stored in**, on a platform that has tenancy. It is no longer a label for
+attribution — it is routing, and getting it wrong fails in the quietest way this
+system has:
+
+- A team the platform does not recognise is **not rejected**. The telemetry is
+  accepted, stored in a shared catch-all tenant, and appears in Grafana exactly
+  as if it were correct, because the datasources read every tenant at once.
+- The service then shares a quota with every other unrouted service, and shows
+  up under someone else's name on the per-tenant dashboards.
+- Nothing errors. Not the SDK, not the collector, not the backend.
+
+So: **ask for the team name and use it verbatim; never invent one and never
+guess at spelling.** If the user does not know, say so in the PR body rather
+than picking something plausible. The verify skill checks placement explicitly,
+which is the only way this is detectable.
 
 If the endpoint is unset the libraries default to `http://localhost:4318` —
 correct on a laptop running the local stack, **silently wrong** everywhere else:

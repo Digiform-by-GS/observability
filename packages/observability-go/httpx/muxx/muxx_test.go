@@ -93,7 +93,7 @@ func TestMethodsOnSameRouteGetDistinctSpanNames(t *testing.T) {
 
 // The failure that fills Mimir: a concrete id reaching the span name means one
 // new series set per distinct URL, growing without bound until writes are
-// rejected for every tenant on the platform.
+// rejected for the offending team, blanking its dashboards.
 func TestConcretePathNeverReachesSpanName(t *testing.T) {
 	names := recordSpanNames(t, [][2]string{
 		{http.MethodGet, "/orders/42"},

@@ -75,6 +75,43 @@ Apps talk OTLP to the Collector only. The Collector fans out to backends. This m
 ### Why Mimir instead of Prometheus?
 Mimir is Prometheus-API compatible but designed for horizontal scale. Grafana datasource uid `prometheus` points at Mimir so Tempo's service-map and exemplar links work without any extra wiring.
 
+### Multi-tenancy — tenant = team, on the PLATFORM deployment only
+
+`docker-compose.platform.yml` runs Loki, Mimir and Tempo with tenancy enabled.
+The tenant is the **team**: the collector routes on the `team` resource
+attribute that onboarded services already set, so no client change was needed
+and no service declares a tenant of its own.
+
+Everything per-tenant is generated from `infra/tenants.yaml` by
+`scripts/gen-tenants.py` — collector exporters and routing connectors, the three
+backends' runtime-override files, and the operator summary in `infra/TENANTS.md`.
+Never hand-edit those outputs; CI fails if they drift from the manifest.
+
+Four things that are easy to get wrong here:
+
+1. **Tempo's `multitenancy_enabled` must land before Mimir's.** Tempo's metrics
+   generator only adds `X-Scope-OrgID` to its own remote-write in multi-tenant
+   mode, so Mimir first means every span-metric write 401s — and the collector
+   is not in that path, so no exporter metric and no alert fires. The dashboards
+   just go quiet.
+2. **Tempo's per-tenant overrides REPLACE the defaults, they do not merge.** A
+   partial `ingestion:` block zeroes what it omits, and a zero `burst_size_bytes`
+   rejects every write regardless of the rate. This dropped traces in production.
+   Always write the whole group.
+3. **Traces are deliberately NOT routed.** Tempo's generator pairs spans within
+   one trace within one tenant, so splitting a cross-team trace would destroy the
+   service-graph edge between those teams permanently — federation cannot recover
+   a metric that was never written, and Blast Radius is built on that edge.
+4. **A wrong `team` fails silently.** It is not rejected; it lands in the
+   `unattributed` catch-all and looks correct in Grafana, because the datasources
+   federate across every tenant. `verify-signals.sh` asserts placement with
+   `__tenant_id__`, including that the data is ABSENT from the catch-all, which
+   is the only way to detect a typo.
+
+Read-side isolation is deliberately **not** implemented: Grafana OSS has no
+datasource permissions, so one shared Grafana reads all tenants. What tenancy
+buys today is quota and blast-radius isolation, not access control.
+
 ### Why OTLP for logs (not Promtail/Fluentd)?
 Loki 3.x accepts native OTLP. Routing logs through the OTel Collector keeps all three signals on the same pipeline (one endpoint for apps, unified retry/batching). No Promtail sidecar needed.
 
@@ -436,3 +473,9 @@ the onboard skill — do not instrument them.
 - Sampling strategies
 - Authentication on Grafana (anonymous admin is enabled for local dev)
 - Multi-language SDKs (Python, Go)
+- **Ingest authentication.** Tenancy routes on an attribute the client sets, so
+  a service can write into another team's tenant by claiming its name. That is
+  acceptable for cooperative internal teams and is not acceptable for anything
+  outside that trust boundary.
+- **Read-side tenant isolation** (per-tenant Grafana orgs). Needs real logins,
+  which means giving up anonymous access.

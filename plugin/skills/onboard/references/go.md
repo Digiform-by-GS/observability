@@ -124,7 +124,7 @@ r.Use(muxx.Middleware("orders", otelmux.WithFilter(skipWebsockets)))
 label values in Tempo's span-metrics generator, and each distinct name
 multiplies by the latency histogram's bucket count. A naming mistake therefore
 does not degrade the offending service — it fills Mimir, and Mimir then rejects
-metric writes for **every tenant on the platform**. The correct incantation
+metric writes for **that team**, blanking its dashboards. The correct incantation
 differs per router (otelchi needs two options, otelmux needs a hand-written
 formatter and has no option at all, otelgin and otelecho are already right), and
 `httpx` encodes all four with tests. Getting it right by hand is possible;

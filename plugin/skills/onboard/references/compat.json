@@ -25,7 +25,7 @@
     ]
   },
   "goRouters": {
-    "_readme": "Router middleware helpers. Prefer these over wiring the upstream otel* middleware by hand: correct span naming is baked in, and getting it wrong fills Mimir and gets writes rejected for every tenant on the platform.",
+    "_readme": "Router middleware helpers. Prefer these over wiring the upstream otel* middleware by hand: correct span naming is baked in, and getting it wrong exhausts the team's metric quota and gets its writes rejected.",
     "module": "github.com/Digiform-by-GS/observability/packages/observability-go/httpx",
     "version": "v0.1.0",
     "install": "go get github.com/Digiform-by-GS/observability/packages/observability-go/httpx@v0.1.0",
@@ -77,7 +77,7 @@
       "endpoint and serviceName are REQUIRED and have no defaults. In a browser 'localhost' means the visitor's own machine, so a default endpoint would work on a developer laptop and silently report nothing from real users.",
       "Use a serviceName DISTINCT from the server-side service (e.g. 'shop-browser' beside 'shop'). Sharing one merges server-render and real-user latency into a single service label and makes p95 meaningless on existing dashboards.",
       "propagateTo is OPT-IN and must be sequenced. It adds a traceparent header, which makes cross-origin requests preflighted; if the backend does not list traceparent in Access-Control-Allow-Headers the preflight fails and THE REAL REQUEST NEVER HAPPENS. Change the backend's CORS first, then enable it. Tell the user this explicitly - it is the one change here that can break their application.",
-      "The route option must return a route TEMPLATE ('/orders/:id'), never location.pathname. It labels web-vital metrics, so a concrete path mints a series per URL and fills the shared metric store, which rejects writes for every service on the platform.",
+      "The route option must return a route TEMPLATE ('/orders/:id'), never location.pathname. It labels web-vital metrics, so a concrete path mints a series per URL, exhausts the team's metric quota and gets its writes rejected.",
       "The origin must be added to the collector's CORS allowlist by a platform operator before anything arrives. Without it every export fails at preflight."
     ]
   },

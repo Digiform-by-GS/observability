@@ -35,9 +35,14 @@ r.Use(muxx.Middleware("orders", otelmux.WithFilter(skipWebsockets)))
 
 Span names become metric label values in Tempo's span-metrics generator, and
 every distinct name multiplies by the latency histogram's bucket count. So a
-naming mistake does not degrade the service that made it — it fills Mimir, and
-Mimir then rejects metric writes **for every tenant on the platform**. One
-team's routing mistake takes out everyone's dashboards.
+naming mistake does not degrade the service that made it in any visible way — it
+exhausts that team's metric quota, and Mimir then **rejects the team's metric
+writes** while the service keeps serving traffic normally. Every dashboard and
+alert the team owns goes blank at once, with nothing in the request path failing
+to explain it.
+
+On a platform with per-tenant limits the damage stops at that team. It did not
+always: before tenancy, one team's routing mistake took out everyone's.
 
 There are two ways to get it wrong, and each router gets it wrong differently:
 

@@ -100,10 +100,11 @@ jq -n --arg o "$OTLP_ENDPOINT" --arg g "$GRAFANA_URL" --arg p "${PYROSCOPE_URL:-
 # request. Enforcing it here rather than in the prompt takes it out of the
 # model's hands - the one time that rule lived only in prose, an agent broke it.
 if [ ! -f .observability/service.json ]; then
-  jq -n --arg d "$DEPLOYMENT_CONFIG" --arg l "$DEPLOYMENT_CONFIG_LOCATION" \
+  jq -n --arg d "$DEPLOYMENT_CONFIG" --arg l "$DEPLOYMENT_CONFIG_LOCATION"         --arg tm "$TEAM" \
         --arg e "$ENVIRONMENT" --arg s "$SIGNALS_REQUESTED" --arg u "$APP_URL" \
         --arg bi "$BROWSER_INGEST" \
     '{deployment_config:$d}
+     + (if $tm == "" then {} else {team:$tm} end)
      + (if $l == "" then {} else {deployment_config_location:$l} end)
      + (if $e == "" then {} else {environment:$e} end)
      + {signals: ($s | split(",") | map(select(length > 0)))}

@@ -76,6 +76,7 @@ operator's side)? Report which signal failed and where it stopped.
 | Metrics flowing | `traces_spanmetrics_calls_total{service="<svc>"}` | Non-empty |
 | **Span names bounded** | `count(sum by (span_name) (traces_spanmetrics_calls_total{service="<svc>"}))` and list the names | Names are route **templates** (`GET /orders/{id}`). FAIL if names contain concrete ids/numbers (`GET /orders/42`) — see below |
 | Runtime metrics | Node: `nodejs_eventloop_utilization` / Go: `process_runtime_go_goroutines` filtered on `service_name="<svc>"` | Present (confirms SDK metrics beyond spans) |
+| **Tenant placement** | `traces_spanmetrics_calls_total{service="<svc>", __tenant_id__="<team>"}` and the same query against `__tenant_id__="unattributed"` | Non-empty for the team, **empty** for the catch-all. Skip if the platform is single-tenant |
 
 **Span-name check is a hard gate, not advice.** It has two distinct failure
 modes, and they look nothing alike:
@@ -114,6 +115,28 @@ So check the *shape* of the names, not just their count: you want
 | Metric query empty but you saw it sent | Counter queried without `_total`; or wrong label (`service` vs `service_name`) | See the label-systems note above |
 | Trace found in UI but Loki `trace_id=` match fails | Leading zeros stripped from the id | Match with ``trace_id=~`0*<id>` `` |
 | Proxy calls return 401/403 | Platform requires login | `Authorization: Bearer $GRAFANA_SA_TOKEN` |
+
+### A service that passes everything but lands in the wrong tenant
+
+This is the one failure the other checks structurally cannot see, so it is worth
+stating on its own.
+
+On a multi-tenant platform the collector routes on the `team` resource
+attribute. A team it does not recognise is **not rejected** — the telemetry is
+accepted, stored in the shared catch-all tenant, and shows up in Grafana looking
+entirely correct, because the datasources read every tenant at once. Traces,
+logs, correlation and metrics all pass. The only consequences are invisible from
+the app: the service shares a quota with every other unrouted service, and
+appears under the wrong name on the per-tenant dashboards.
+
+`verify-signals.sh` asserts placement explicitly, both halves — present under the
+expected tenant, and **absent** from the catch-all. The second half is what
+distinguishes "routed correctly" from "routed nowhere in particular", and
+without it a one-character typo in a team name is undetectable.
+
+If placement fails, the team is almost certainly not in the platform's tenant
+manifest yet, or is spelled differently there. That is a platform-side change,
+not an application one — ask the operator rather than editing the service.
 
 ## Report format
 
