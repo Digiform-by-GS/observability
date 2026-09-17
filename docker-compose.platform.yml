@@ -85,6 +85,18 @@ services:
     # lists by appending, which would otherwise mount two files on one path.
     volumes: !override
       - ./infra/otel-collector/config.platform.yaml:/etc/otel-collector-config.yaml:ro
+      # Per-tenant exporters, routing connectors and their pipelines. Generated
+      # from infra/tenants.yaml; adding a team means regenerating and restarting
+      # the collector, which is deliberately an explicit operation.
+      - ./infra/otel-collector/tenants.platform.yaml:/etc/otel-collector-tenants.yaml:ro
+    # TWO --config flags. Collector configs merge maps recursively but REPLACE
+    # lists, so the split is drawn where no YAML list is defined in both files:
+    # the base owns every pipeline's receivers/processors/exporters list, the
+    # fragment adds only new keys. Getting that wrong silently drops whichever
+    # list came first.
+    command: !override
+      - --config=/etc/otel-collector-config.yaml
+      - --config=/etc/otel-collector-tenants.yaml
     environment:
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-shared-dev}
     # 4317/4318 stay on 0.0.0.0 — this is the developer-facing ingest endpoint,

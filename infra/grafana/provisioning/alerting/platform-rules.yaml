@@ -138,12 +138,14 @@ groups:
         condition: THRESHOLD
         for: 5m
         annotations:
-          summary: "Writes are being discarded by a platform backend"
+          summary: "Writes discarded for {{ $labels.user }}{{ $labels.tenant }} ({{ $labels.reason }})"
           description: >-
-            Mimir, Loki or Tempo is rejecting data it was sent. The usual cause
-            is a limit being exceeded - most often the 150k series cap, which
-            rejects writes for EVERY tenant rather than only the one that grew.
-            Check the cardinality alerts alongside this one.
+            Mimir, Loki or Tempo is rejecting data it was sent, for the tenant
+            named in the labels. The usual cause is that tenant passing a limit
+            in infra/tenants.yaml. Since tenancy landed the blast radius is the
+            one tenant rather than the whole platform, so this is no longer
+            automatically everyone's problem - but it is still total data loss
+            for whoever owns it. `reason` says which limit.
         labels:
           severity: critical
           signal: platform
@@ -156,7 +158,12 @@ groups:
               instant: true
               # Same reasoning as the export-failure rule: these families do not
               # exist until the first discard occurs.
-              expr: sum(rate({__name__=~"cortex_discarded_samples_total|loki_discarded_samples_total|tempo_discarded_spans_total"}[5m]))
+              # by (user, tenant, reason): Mimir labels the tenant `user`,
+              # Loki and Tempo label it `tenant`, and all three carry `reason`.
+              # Aggregating them away was acceptable when there was one tenant;
+              # now it would hide WHOSE data is being dropped, which is the only
+              # thing worth knowing here.
+              expr: sum by (user, tenant, reason) (rate({__name__=~"cortex_discarded_samples_total|loki_discarded_samples_total|tempo_discarded_spans_total"}[5m]))
           - refId: THRESHOLD
             datasourceUid: __expr__
             model:
@@ -168,21 +175,26 @@ groups:
         noDataState: OK
         execErrState: Error
 
-      # Replaces the data-plane approximation that count({__name__=~".+"}) gave
-      # before the platform was scraped. This is Mimir's own count of what its
-      # ingester holds - authoritative, and far cheaper to evaluate than a query
-      # that touches every series in the database.
+      # An OOM GUARD, not a fairness cap - that job moved to the per-tenant rule
+      # below when tenancy landed. This one is about the total the box can hold
+      # in Mimir's 2 GiB, which no per-tenant limit protects: the sum of the
+      # per-tenant caps in infra/tenants.yaml can be raised past what the
+      # hardware has, and the generator's budget check is the only thing that
+      # normally prevents it.
       - uid: platform-mimir-series-cap
-        title: Mimir active series approaching the cap
+        title: Mimir total active series approaching what the box can hold
         condition: THRESHOLD
         for: 15m
         annotations:
-          summary: "{{ $value }} active series - the cap is 150000"
+          summary: "{{ $value }} active series across all tenants"
           description: >-
-            max_global_series_per_user in mimir-config.yaml is 150000. Past it,
-            Mimir rejects writes with a 4xx for every tenant on the platform,
-            not only whichever one grew. Find the offender with
-            topk(10, count by (service) (count by (service, span_name) (traces_spanmetrics_calls_total)))
+            This is the TOTAL across tenants, and it is about Mimir's memory
+            rather than any one team's quota - past roughly 150k in a 2 GiB
+            limit the ingester is at risk of being OOM-killed, which loses every
+            tenant at once. Find the biggest contributor with
+            topk(5, cortex_ingester_active_series). If one tenant dominates, its
+            own cap alert should also be firing; if none is, the budget in
+            infra/tenants.yaml has been over-allocated.
         labels:
           severity: critical
           signal: cardinality
@@ -193,6 +205,13 @@ groups:
             model:
               refId: SERIES
               instant: true
+              # This sum is only correct because the collector's self-scrape
+              # goes to exactly ONE tenant. cortex_ingester_memory_series is a
+              # process-wide gauge, so if that scrape were ever routed to
+              # several tenants the federated datasource would return one copy
+              # per tenant and sum() would multiply it - firing this alert at a
+              # fraction of the real number. Verified against the live platform:
+              # sum by (__tenant_id__) returns a single series, from `platform`.
               expr: sum(cortex_ingester_memory_series)
           - refId: THRESHOLD
             datasourceUid: __expr__
@@ -203,5 +222,111 @@ groups:
               # 70% of 150000 - the pilot's own health criterion.
               conditions:
                 - evaluator: { type: gt, params: [105000] }
+        noDataState: OK
+        execErrState: Error
+
+      # THE alert this whole tenancy project exists to make possible. Before it,
+      # the only cardinality signal was a single global number: by the time it
+      # fired, writes were already being rejected for everyone, and finding who
+      # caused it was a manual hunt. This names the team and fires while the
+      # damage is still confined to them.
+      #
+      # A RATIO rather than an absolute, because the caps differ per tenant
+      # (infra/tenants.yaml) - unattributed is allowed 30k and platform 10k, so
+      # one threshold could not be right for both.
+      - uid: platform-tenant-series-cap
+        title: A tenant is approaching its own series cap
+        condition: THRESHOLD
+        for: 15m
+        annotations:
+          summary: "{{ $labels.user }} is at {{ humanizePercentage $value }} of its series cap"
+          description: >-
+            This tenant is close to the limit set for it in infra/tenants.yaml.
+            Past it Mimir rejects ITS metric writes with a 4xx - other tenants
+            are unaffected, which is the point of tenancy, but this team loses
+            metrics entirely and their dashboards go blank.
+            Usual cause is unbounded label values: an un-templated HTTP route,
+            an id used as a metric label, or a version string that changes per
+            deploy. Find it with
+            topk(10, count by (__name__) ({__name__=~".+"})) read as that tenant.
+            Either fix the cardinality or raise their cap in the manifest - the
+            generator will refuse the raise if the box cannot hold it.
+        labels:
+          severity: warning
+          signal: cardinality
+        data:
+          - refId: RATIO
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: RATIO
+              instant: true
+              # cortex_limits_overrides comes from Mimir's overrides-exporter,
+              # which publishes ONLY for tenants with an explicit runtime-config
+              # entry - hence gen-tenants.py writing one for every tenant even
+              # when it equals the default. Without that, a tenant on defaults
+              # would silently have no alert at all.
+              expr: >-
+                max by (user) (cortex_ingester_active_series)
+                / on (user) group_left
+                max by (user) (cortex_limits_overrides{limit_name="max_global_series_per_user"})
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: RATIO
+              conditions:
+                - evaluator: { type: gt, params: [0.8] }
+        noDataState: OK
+        execErrState: Error
+
+      # The routing table matches team names exactly (case-insensitively).
+      # Anything it does not match lands in the catch-all, silently and
+      # correctly - which means a service whose `team` attribute is misspelled,
+      # missing, or not yet in infra/tenants.yaml looks completely healthy while
+      # sharing a quota with every other unrouted service.
+      #
+      # There is no error to detect. A rising catch-all is the only symptom, so
+      # it is the only available alarm for a botched onboarding.
+      - uid: platform-catchall-growing
+        title: Telemetry is accumulating in the catch-all tenant
+        condition: THRESHOLD
+        for: 30m
+        annotations:
+          summary: "unattributed holds {{ $value }} active series and is growing"
+          description: >-
+            Some service is sending telemetry with no `team` resource attribute,
+            or with one that is not in infra/tenants.yaml. It is being accepted
+            and stored under the shared catch-all quota rather than that team's.
+            Nothing is broken, which is why this needs an alert rather than an
+            error. Identify it with
+            count by (service_name) (up{}) read as the unattributed tenant, then
+            either set OTEL_RESOURCE_ATTRIBUTES=team=<x> on that service or add
+            the team to the manifest.
+        labels:
+          severity: warning
+          signal: tenancy
+        data:
+          - refId: GROWTH
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: GROWTH
+              instant: true
+              # Growth over an hour, not an absolute: the catch-all legitimately
+              # holds browser RUM and the verify skill's own pushes forever, so
+              # a steady population is expected and only a climb is a signal.
+              expr: >-
+                max by (user) (cortex_ingester_active_series{user="unattributed"})
+                - min by (user) (min_over_time(cortex_ingester_active_series{user="unattributed"}[1h]))
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: GROWTH
+              conditions:
+                - evaluator: { type: gt, params: [500] }
         noDataState: OK
         execErrState: Error

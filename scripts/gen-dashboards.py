@@ -206,12 +206,13 @@ platform_panels = [
         thresholds=[(1, "green")],
     ),
     timeseries(
-        "Mimir active series (cap 150k)",
+        "Mimir active series, all tenants",
         [target("sum(cortex_ingester_memory_series)", "active series")],
         6, 4, 9, 6,
-        desc="max_global_series_per_user is 150000 and is GLOBAL on this single-tenant "
-             "deployment. Past it, Mimir rejects writes for every service on the platform. "
-             "The alert fires at 105k (70%).",
+        desc="The TOTAL across tenants. Since tenancy landed this is about Mimir's memory rather "
+             "than any one team's quota - no per-tenant limit protects the box from the sum of "
+             "the caps being raised past what 2 GiB holds. For whose quota is at risk, see the "
+             "per-tenant panels below.",
         thresholds=[(105000, "orange"), (150000, "red")],
     ),
     timeseries(
@@ -240,12 +241,13 @@ platform_panels = [
     timeseries(
         "Writes discarded by a backend",
         [target(
-            'sum by (__name__) (rate({__name__=~"cortex_discarded_samples_total|'
+            'sum by (user, tenant, reason) (rate({__name__=~"cortex_discarded_samples_total|'
             'loki_discarded_samples_total|tempo_discarded_spans_total"}[5m]))',
-            "{{__name__}}")],
+            "{{user}}{{tenant}} - {{reason}}")],
         12, 10, 12, 7,
-        desc="A backend can be UP and still refusing writes — over a limit, malformed data, or a "
-             "tenant past its cap. Invisible from the up/down panel alone.",
+        desc="A backend can be UP and still refusing writes. Broken out by tenant because that is "
+             "now the blast radius: Mimir labels it `user`, Loki and Tempo label it `tenant`, and "
+             "`reason` names the limit that was hit.",
     ),
     timeseries(
         "Ingest volume",
@@ -264,6 +266,54 @@ platform_panels = [
         unit="bytes",
         desc="Resident memory per component. Mimir is the one to watch: series count and memory "
              "move together, so this rising with the series panel is the same story twice.",
+    ),
+
+    # ---------------------------------------------------------- per tenant ---
+    # The section that justifies tenancy existing. Before it, cardinality was a
+    # single platform-wide number: it told you something was wrong but never
+    # who, and by the time it moved, everyone's writes were already failing.
+    text(
+        "Per-tenant",
+        "One team's cardinality can no longer reject another team's writes. These panels say "
+        "**whose** quota is at risk, while the damage is still confined to them. Tenants and "
+        "their caps live in `infra/tenants.yaml`.",
+        0, 24, 24, 3,
+    ),
+    timeseries(
+        "Series used against each tenant's own cap",
+        [target('max by (user) (cortex_ingester_active_series) / on (user) group_left max by (user) (cortex_limits_overrides{limit_name="max_global_series_per_user"})', "{{user}}")],
+        0, 27, 12, 7,
+        unit="percentunit",
+        desc="A ratio, not an absolute, because the caps differ per tenant - 30k for the catch-all, "
+             "10k for platform. cortex_limits_overrides comes from Mimir's overrides-exporter, and "
+             "ONLY for tenants with an explicit runtime-config entry, which is why gen-tenants.py "
+             "writes one for every tenant even at the default. The alert fires at 80%.",
+        thresholds=[(0.8, "orange"), (1.0, "red")],
+    ),
+    timeseries(
+        "Active series per tenant",
+        [target("cortex_ingester_active_series", "{{user}}")],
+        12, 27, 12, 7,
+        desc="The absolute counts behind the ratio. One tenant climbing while the others stay flat "
+             "is usually a single service with an unbounded label value, not organic growth.",
+    ),
+    timeseries(
+        "Ingest volume per tenant, measured at the collector",
+        [target("sum by (exporter) (rate(otelcol_exporter_sent_metric_points_total[5m]))",
+                "{{exporter}}")],
+        0, 34, 12, 7,
+        desc="One exporter per tenant, so this is the only direct evidence that the routing table "
+             "does what it says. Until routing is enabled every tenant shares one exporter and this "
+             "shows a single line.",
+    ),
+    timeseries(
+        "Catch-all tenant",
+        [target('cortex_ingester_active_series{user="unattributed"}', "unattributed")],
+        12, 34, 12, 7,
+        desc="A CLIMB HERE IS A BOTCHED ONBOARDING. Telemetry with no `team` attribute, or a team "
+             "not in the manifest, is accepted and stored here on a shared quota - correctly, "
+             "silently, with no error anywhere. A steady population is expected: browser RUM and "
+             "the verify skill's own pushes live here permanently.",
     ),
 ]
 

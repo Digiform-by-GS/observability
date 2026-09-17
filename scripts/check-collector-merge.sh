@@ -35,31 +35,22 @@ if ! docker info >/dev/null 2>&1; then
   exit 0
 fi
 
-# Phase-1 shape:
-#   logs + metrics  -> routed by team
-#   traces          -> NOT routed. Tempo's generator pairs spans within one
-#                      trace within one tenant, so splitting a cross-team trace
-#                      would permanently destroy the service-graph edge between
-#                      those teams, and Blast Radius is built on that edge.
-#   metrics/platform -> its own tenant, not routed: the collector's own scrape
-#                      carries no `team`, and platform self-telemetry must never
-#                      be evictable by a team's cardinality.
-sed -e 's#exporters: \[otlp_http/logs\]#exporters: [routing/logs]#' \
-    -e 's#exporters: \[prometheus_remote_write\]#exporters: [routing/metrics]#' \
-    "$BASE_SRC" > "$TMP/base.yaml"
-sed -i '/metrics\/platform:/,/exporters:/ s#exporters: \[routing/metrics\]#exporters: [prometheus_remote_write/platform]#' \
-    "$TMP/base.yaml"
-
-# Sanity-check the transformation itself. A sed that silently matched nothing
-# would leave the base unrouted and the fragment unreferenced, and the validation
-# below would pass while proving nothing at all.
+# No transformation any more. The base config now exports logs and metrics into
+# the routing connectors directly, so what is validated here is exactly what the
+# platform runs. This block used to synthesise that shape with sed, which was
+# necessary before routing landed and is now a liability: a sed that silently
+# matched nothing would validate a config nobody deploys.
+#
+# Sanity-check that the base really is the routed shape, so this check cannot
+# quietly degrade into validating two unrelated files.
 for expect in "routing/logs" "routing/metrics" "prometheus_remote_write/platform"; do
-  grep -q "exporters: \[$expect\]" "$TMP/base.yaml" || {
-    echo "transform failed: no pipeline exports to $expect"
-    echo "  (the pipeline layout in $BASE_SRC changed; update this script)"
+  grep -q "exporters: \[$expect\]" "$BASE_SRC" || {
+    echo "$BASE_SRC has no pipeline exporting to $expect"
+    echo "  (routing was removed, or the pipeline layout changed - update this script)"
     exit 1
   }
 done
+cp "$BASE_SRC" "$TMP/base.yaml"
 
 OUT="$(docker run --rm -e DEPLOYMENT_ENVIRONMENT=ci \
   -v "$TMP/base.yaml:/base.yaml:ro" \
