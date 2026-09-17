@@ -4,19 +4,22 @@
 overrides:
   platform:
     ingestion:
-      rate_limit_bytes: 2000000
-      max_traces_per_user: 2000
+      rate_limit_bytes: 15000000
+      burst_size_bytes: 20000000
+      max_traces_per_user: 10000
     metrics_generator:
       max_active_series: 10000
   unattributed:
     ingestion:
-      rate_limit_bytes: 2000000
-      max_traces_per_user: 2000
+      rate_limit_bytes: 15000000
+      burst_size_bytes: 20000000
+      max_traces_per_user: 10000
     metrics_generator:
       max_active_series: 10000
   gudangsolusi:
     ingestion:
-      rate_limit_bytes: 2000000
-      max_traces_per_user: 2000
+      rate_limit_bytes: 15000000
+      burst_size_bytes: 20000000
+      max_traces_per_user: 10000
     metrics_generator:
       max_active_series: 10000

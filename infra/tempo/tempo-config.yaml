@@ -72,6 +72,21 @@ overrides:
 
   # Fallback for any tenant with no entry in the file above.
   defaults:
+    # Tempo's own ingestion defaults, stated rather than inherited.
+    #
+    # An overrides block REPLACES the built-in defaults instead of merging with
+    # them, so a `defaults:` section that mentions only metrics_generator leaves
+    # every ingestion field at its zero value - and a zero burst_size_bytes
+    # rejects every write no matter what the rate limit says. Single-tenant mode
+    # never exercised this path, so it appeared the moment multitenancy was
+    # enabled and cost ~10 minutes of dropped traces on the platform.
+    #
+    # The error it produces names a RATE limit, which sends you to look at the
+    # rate. The rate was fine. Write the whole group, always.
+    ingestion:
+      rate_limit_bytes: 15000000
+      burst_size_bytes: 20000000
+      max_traces_per_user: 10000
     metrics_generator:
       processors: [service-graphs, span-metrics, local-blocks]
       generate_native_histograms: both

@@ -235,7 +235,15 @@ def loki_runtime(tenants, defaults):
 
 
 def tempo_overrides(tenants, defaults):
-    """Traces are not routed, so in practice only the catch-all tenant receives
+    """Emits the COMPLETE ingestion group for every tenant, deliberately.
+
+    Tempo's per-tenant overrides replace the defaults rather than merging, so a
+    partial ingestion block silently zeroes whatever it omits - and a zero
+    burst_size_bytes rejects every write regardless of the rate limit. That
+    shipped once and dropped traces in production; the error message talks about
+    a rate limit, so it points away from the missing field.
+
+    Traces are not routed, so in practice only the catch-all tenant receives
     spans today. The per-tenant entries are still emitted so that enabling trace
     routing later is a manifest change and not a new file.
     """
@@ -245,6 +253,7 @@ def tempo_overrides(tenants, defaults):
         out.append(f"""  {name}:
     ingestion:
       rate_limit_bytes: {limit(t, defaults, 'tempo', 'ingestion_rate_limit_bytes')}
+      burst_size_bytes: {limit(t, defaults, 'tempo', 'ingestion_burst_size_bytes')}
       max_traces_per_user: {limit(t, defaults, 'tempo', 'ingestion_max_traces_per_user')}
     metrics_generator:
       max_active_series: {limit(t, defaults, 'tempo', 'metrics_generator_max_active_series')}""")
