@@ -138,10 +138,13 @@ say "=== service definitions vs compose files ==="
 if ! docker compose version >/dev/null 2>&1; then
   say "  [skip]  docker compose not available"
 else
-  COMPOSE_FILES="-f docker-compose.yml -f docker-compose.platform.yml"
+  # An ARRAY, not a string. As a string this needs word splitting to become four
+  # arguments, which shellcheck flags (SC2086) and whose suggested fix - quoting
+  # it - would pass the whole thing as one argument and break the command.
+  COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.platform.yml)
   # --dry-run prints one line per service. A service already correct says
   # "Running"; one compose intends to change says "Recreate"/"Creating".
-  PLAN="$(docker compose $COMPOSE_FILES --dry-run up -d 2>&1 \
+  PLAN="$(docker compose "${COMPOSE_FILES[@]}" --dry-run up -d 2>&1 \
           | grep -iE "recreat|Container .* (Creating|Starting)" || true)"
   if [ -n "$PLAN" ]; then
     warn "compose would change these services - their definitions have drifted:"
