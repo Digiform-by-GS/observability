@@ -90,6 +90,7 @@ export async function runJob(
       ? { DEPLOYMENT_CONFIG_LOCATION: req.deploymentConfigLocation }
       : {}),
     ...(req.environment ? { ENVIRONMENT: req.environment } : {}),
+    ...(req.serviceNamespace ? { SERVICE_NAMESPACE: req.serviceNamespace } : {}),
     ...(req.signals?.length ? { SIGNALS_REQUESTED: req.signals.join(',') } : {}),
     ...(req.appUrl ? { APP_URL: req.appUrl } : {}),
     ...(req.browserIngest ? { BROWSER_INGEST: req.browserIngest } : {}),

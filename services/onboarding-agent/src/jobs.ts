@@ -64,6 +64,17 @@ export interface JobRequest {
   /** Free text: repo, file and key. Committed to the client's repo — see server.ts. */
   deploymentConfigLocation?: string;
   environment?: string;
+  /**
+   * OTel's `service.namespace`: the APPLICATION a service belongs to, where an
+   * application is usually several deployables (costwise = backend + frontend
+   * + workers). `serviceName` identifies the deployable; this groups them.
+   *
+   * Deliberately not folded into `team`. Team is who owns it, namespace is what
+   * it is part of, and collapsing them into "gudangsolusi-costwise" would make
+   * the team attribute lie and lose the "what does this team own" question that
+   * team-level tenancy exists to answer.
+   */
+  serviceNamespace?: string;
   signals?: Signal[];
   appUrl?: string;
   browserIngest?: BrowserIngest;
@@ -122,6 +133,7 @@ export interface Job {
    * container as env vars and are dropped, like gitToken.
    */
   environment?: string;
+  serviceNamespace?: string;
   signals?: Signal[];
   createdAt: string;
   startedAt?: string;
@@ -152,6 +164,7 @@ export class JobStore {
       ...(req.serviceName ? { serviceName: req.serviceName } : {}),
       ...(req.team ? { team: req.team } : {}),
       ...(req.environment ? { environment: req.environment } : {}),
+      ...(req.serviceNamespace ? { serviceNamespace: req.serviceNamespace } : {}),
       ...(req.signals?.length ? { signals: req.signals } : {}),
       createdAt: new Date().toISOString(),
       hasPatch: false,

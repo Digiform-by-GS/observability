@@ -1,0 +1,10 @@
+{
+  "_generated_by": "scripts/gen-tenants.py from infra/tenants.yaml - DO NOT EDIT",
+  "catchAll": "unattributed",
+  "teams": [
+    {
+      "name": "gudangsolusi",
+      "description": "Costwise backend, frontend and workers."
+    }
+  ]
+}
