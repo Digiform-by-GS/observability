@@ -118,6 +118,9 @@ configs_for() {
     tempo)          echo "infra/tempo/tempo-config.yaml" ;;
     loki)           echo "infra/loki/loki-config.yaml" ;;
     mimir)          echo "infra/mimir/mimir-config.yaml" ;;
+    # The agent reads the generated team list at STARTUP, so a regenerated
+    # teams.json does not reach the form until the container restarts.
+    onboarding-agent) echo "infra/teams.json" ;;
     *)              echo "" ;;
   esac
 }
@@ -138,26 +141,44 @@ say "=== service definitions vs compose files ==="
 if ! docker compose version >/dev/null 2>&1; then
   say "  [skip]  docker compose not available"
 else
-  # An ARRAY, not a string. As a string this needs word splitting to become four
-  # arguments, which shellcheck flags (SC2086) and whose suggested fix - quoting
-  # it - would pass the whole thing as one argument and break the command.
-  COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.platform.yml)
-  # --dry-run prints one line per service. A service already correct says
-  # "Running"; one compose intends to change says "Recreate"/"Creating".
-  PLAN="$(docker compose "${COMPOSE_FILES[@]}" --dry-run up -d 2>&1 \
-          | grep -iE "recreat|Container .* (Creating|Starting)" || true)"
-  if [ -n "$PLAN" ]; then
-    warn "compose would change these services - their definitions have drifted:"
-    [ "$QUIET" -eq 1 ] || printf '%s\n' "$PLAN" | head -8 | sed 's/^/            /'
-  else
-    ok "every service matches its compose definition"
-  fi
+  # BOTH stacks. This named only the platform overlay, so the onboarding agent -
+  # a deployed service with its own compose file - could drift invisibly, and
+  # did: it gained a bind mount and an env var, and this still reported clean.
+  #
+  # An ARRAY, not a string. As a string the flags need word splitting to become
+  # separate arguments, which shellcheck flags (SC2086) and whose suggested fix
+  # - quoting it - would pass the whole thing as one argument and break it.
+  # Each stack with ITS OWN file set. The onboard overlay is standalone - it
+  # declares onboarding-agent and nothing else, and is deployed as
+  # `-f docker-compose.onboard.yml` alone. Pairing it with docker-compose.yml
+  # evaluates the platform services WITHOUT their overlay, so compose reports
+  # wanting to recreate Loki and Mimir and create the demo fixtures: six lines
+  # of noise about services this stack does not own. Tested, not assumed.
+  DRIFTED=0
+  for stack in docker-compose.platform.yml docker-compose.onboard.yml; do
+    [ -f "$stack" ] || continue
+    if [ "$stack" = "docker-compose.onboard.yml" ]; then
+      COMPOSE_FILES=(-f "$stack")
+    else
+      COMPOSE_FILES=(-f docker-compose.yml -f "$stack")
+    fi
+    # --dry-run prints one line per service. A service already correct says
+    # "Running"; one compose intends to change says "Recreate"/"Creating".
+    PLAN="$(docker compose "${COMPOSE_FILES[@]}" --dry-run up -d 2>&1 \
+            | grep -iE "recreat|Container .* (Creating|Starting)" || true)"
+    if [ -n "$PLAN" ]; then
+      warn "compose would change these services in $stack:"
+      [ "$QUIET" -eq 1 ] || printf '%s\n' "$PLAN" | head -6 | sed 's/^/            /'
+      DRIFTED=1
+    fi
+  done
+  [ "$DRIFTED" -eq 0 ] && ok "every service matches its compose definition"
 fi
 
 say ""
 say "=== running containers vs config on disk ==="
 
-for svc in otel-collector grafana tempo loki mimir; do
+for svc in otel-collector grafana tempo loki mimir onboarding-agent; do
   STARTED="$(docker inspect "$svc" --format '{{.State.StartedAt}}' 2>/dev/null)"
   if [ -z "$STARTED" ]; then
     say "  [skip]  container '$svc' not running"
