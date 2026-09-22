@@ -214,7 +214,7 @@ Only one variable is mandatory:
 |---|---|---|
 | `OTEL_SERVICE_NAME` | **Yes** | Logical service name — see rules below |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Recommended | `otlp_http` from platform.json |
-| `OTEL_RESOURCE_ATTRIBUTES` | **Yes on a multi-tenant platform** | `team=<the user's team>` — this ROUTES the telemetry, see below |
+| `OTEL_RESOURCE_ATTRIBUTES` | **Yes on a multi-tenant platform** | `team=<the user's team>` — this ROUTES the telemetry, see below. Add `service.namespace=<application>` when several services form one application |
 | `OTEL_DEPLOYMENT_ENVIRONMENT` | **Yes, and different per deployment** | `development` / `staging` / `production` — see the promotion warning below |
 | `OTEL_SERVICE_VERSION` | Optional | Release tag like `1.4.2` — **never a git SHA** (each distinct value mints a full new set of metric series) |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Only if the platform requires auth | `Authorization=Bearer <key>` — the operator issues the key; keep it in `.env`/secrets, never in platform.json |
@@ -327,6 +327,23 @@ system has:
 - The service then shares a quota with every other unrouted service, and shows
   up under someone else's name on the per-tenant dashboards.
 - Nothing errors. Not the SDK, not the collector, not the backend.
+
+### `team`, `service.namespace` and `service.name` are three different things
+
+Do not collapse them. Each answers a different question, and conflating them
+loses the answer to the others:
+
+| Question | Attribute | Example |
+|---|---|---|
+| Who owns it? | `team` | `gudangsolusi` |
+| Which application is it part of? | `service.namespace` | `costwise` |
+| Which deployable is it? | `service.name` | `costwise-backend` |
+
+`service.namespace` is optional and groups several services into one
+application, so a dashboard can show "costwise" rather than four unrelated
+service names. It is NOT the team, and a team name of `gudangsolusi-costwise`
+is wrong: the team owns more than one application, and folding the application
+in makes the attribute unable to answer what that team owns.
 
 So: **ask for the team name and use it verbatim; never invent one and never
 guess at spelling.** If the user does not know, say so in the PR body rather

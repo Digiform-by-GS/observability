@@ -24,6 +24,7 @@ either destroy them or carry them as Python string literals. This emits a
 fragment instead, merged by a second --config flag. Collector configs merge maps
 recursively but REPLACE lists, so no YAML list may be defined in both files.
 """
+import json
 import pathlib
 import re
 import sys
@@ -260,6 +261,36 @@ def tempo_overrides(tenants, defaults):
     return "\n".join(out) + "\n"
 
 
+# --- team list for the onboarding form ----------------------------------------
+
+def teams_json(tenants):
+    """The teams a human may pick in the onboarding form.
+
+    Generated rather than parsed out of tenants.yaml by the agent, for three
+    reasons. No YAML parser exists in this repo's Node code and the agent image
+    installs only express, so reading the manifest there means a new dependency
+    for a ten-line need. The filter is subtler than it looks - `routed` is
+    absent-means-true, and `platform`/`unattributed` are not teams at all - and
+    that logic already exists here rather than needing a second implementation
+    in another language. And being a generated file, it inherits the --check
+    drift guard for free.
+
+    The catch-all is named but deliberately NOT listed as pickable. The manifest
+    calls a rising catch-all "THE ALARM that a team's `team` value is wrong";
+    letting somebody select it on purpose would defeat that alarm. The form
+    offers it only as an explicit "my team isn't listed" choice.
+    """
+    doc = {
+        "_generated_by": "scripts/gen-tenants.py from infra/tenants.yaml - DO NOT EDIT",
+        "catchAll": catch_all(tenants)["name"],
+        "teams": [
+            {"name": t["name"], "description": t.get("description", "")}
+            for t in routed(tenants)
+        ],
+    }
+    return json.dumps(doc, indent=2) + "\n"
+
+
 # --- operator summary ---------------------------------------------------------
 
 def summary(tenants, defaults, budget, total):
@@ -380,21 +411,13 @@ def check_datasources(tenants):
         )
 
 
-TARGETS = {
-    "infra/otel-collector/tenants.platform.yaml": collector_fragment,
-    "infra/mimir/runtime.yaml": mimir_runtime,
-    "infra/loki/runtime.yaml": loki_runtime,
-    "infra/tempo/overrides.yaml": tempo_overrides,
-    "infra/TENANTS.md": summary,
-}
-
-
 def render(tenants, defaults, budget, total):
     return {
         "infra/otel-collector/tenants.platform.yaml": collector_fragment(tenants),
         "infra/mimir/runtime.yaml": mimir_runtime(tenants, defaults),
         "infra/loki/runtime.yaml": loki_runtime(tenants, defaults),
         "infra/tempo/overrides.yaml": tempo_overrides(tenants, defaults),
+        "infra/teams.json": teams_json(tenants),
         "infra/TENANTS.md": summary(tenants, defaults, budget, total),
     }
 

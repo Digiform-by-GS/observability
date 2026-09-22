@@ -14,6 +14,7 @@ import {
   type Signal,
 } from './jobs.js';
 import { parseRepoUrl, requestNoun } from './providers.js';
+import { loadTeams, isKnownTeam } from './teams.js';
 import { runJob, artifactDir, type RunnerConfig } from './runner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,11 @@ const cfg: RunnerConfig = {
   budgetUsd: process.env.BUDGET_USD ?? '2.00',
   timeoutMs: Number(process.env.JOB_TIMEOUT_MS ?? 15 * 60 * 1000),
 };
+
+// Read once at startup. The list only changes when a tenant is added to
+// infra/tenants.yaml, which also requires a collector restart, so there is
+// nothing to gain from re-reading it per request.
+const TEAMS = loadTeams(process.env.TEAMS_FILE);
 
 // Optional shared secret. A submitted job can carry a customer's repository
 // token, so on anything wider than a trusted LAN this should be set.
@@ -171,12 +177,31 @@ app.post('/api/jobs', (req, res) => {
     });
   }
 
+  // An unknown team is refused rather than accepted-and-misrouted. The platform
+  // does NOT reject one: it stores the telemetry in the shared catch-all where
+  // it looks entirely correct in Grafana, so the mistake is invisible until
+  // someone reads the per-tenant panels. Refusing here is the only point in the
+  // chain that can name the valid options.
+  //
+  // Absent is allowed and means the catch-all deliberately - the form's "my team
+  // isn't listed" choice.
+  const team = body.team ? String(body.team).trim().slice(0, 64) : '';
+  if (team && TEAMS.available && !isKnownTeam(TEAMS, team)) {
+    return res.status(400).json({
+      error:
+        `unknown team "${team}". Known teams: ` +
+        `${TEAMS.teams.map((t) => t.name).join(', ') || '(none configured)'}. ` +
+        `Omit the field to use the shared "${TEAMS.catchAll}" pool, or ask the ` +
+        `platform operator to add your team.`,
+    });
+  }
+
   const jobReq: JobRequest = {
     repoUrl,
     provider,
     mode,
     ...(body.serviceName ? { serviceName: String(body.serviceName).slice(0, 64) } : {}),
-    ...(body.team ? { team: String(body.team).slice(0, 64) } : {}),
+    ...(team ? { team } : {}),
     ...(body.baseBranch ? { baseBranch: String(body.baseBranch).slice(0, 128) } : {}),
     ...(body.gitToken ? { gitToken: String(body.gitToken) } : {}),
     // Coerced to a safe value, never rejected — same as `mode` above. A
@@ -190,6 +215,9 @@ app.post('/api/jobs', (req, res) => {
       ? { deploymentConfigLocation: oneLine(body.deploymentConfigLocation, 256) }
       : {}),
     ...(body.environment ? { environment: oneLine(body.environment, 32) } : {}),
+    ...(body.serviceNamespace
+      ? { serviceNamespace: oneLine(body.serviceNamespace, 64) }
+      : {}),
     signals: resolveSignals(body),
     ...(toOrigin(body.appUrl) ? { appUrl: toOrigin(body.appUrl) as string } : {}),
     // Defaults to 'proxy' on anything unrecognised, including absent. That is
@@ -208,6 +236,10 @@ app.post('/api/jobs', (req, res) => {
 });
 
 app.get('/api/jobs', (_req, res) => res.json(store.list()));
+
+// Feeds the form's team dropdown. `available: false` means the generated list
+// could not be read, and the form says so rather than silently offering nothing.
+app.get('/api/teams', (_req, res) => res.json(TEAMS));
 
 app.get('/api/jobs/:id', (req, res) => {
   const job = store.get(String(req.params.id));

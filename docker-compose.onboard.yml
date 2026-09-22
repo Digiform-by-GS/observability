@@ -43,6 +43,7 @@ services:
       # or the caller must state "provider" on the request.
       GITLAB_HOSTS: ${ONBOARD_GITLAB_HOSTS:-}
       ARTIFACT_ROOT: /var/lib/onboarding-agent/jobs
+      TEAMS_FILE: /app/teams.json
     volumes:
       # Docker-out-of-docker: the API spawns sibling containers. This grants
       # effective root on the host, which is why the API image carries no
@@ -52,6 +53,19 @@ services:
       # Shared with the runner by absolute host path, so the bind mount the API
       # passes to `docker run` resolves on the HOST, not inside this container.
       - /var/lib/onboarding-agent/jobs:/var/lib/onboarding-agent/jobs
+      # The teams the onboarding form may offer, generated from
+      # infra/tenants.yaml. Bind-mounted rather than baked into the image for
+      # the same reason the collector's tenant fragment is: adding a team should
+      # not require rebuilding anything, and an image would go stale silently.
+      #
+      # The build context is ./services/onboarding-agent, so this file is
+      # outside it and cannot be COPYed even if we wanted to.
+      #
+      # If this mount is missing the API serves an empty list and says so
+      # loudly; the form then offers only "my team isn't listed", so everything
+      # lands in the catch-all. That is the correct answer when the platform's
+      # team list is unknown - and it is visible, which free text would not be.
+      - ./infra/teams.json:/app/teams.json:ro
     ports:
       - "8100:8100"
     # Deliberately NOT on the `obs` network: this service has no business

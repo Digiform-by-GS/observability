@@ -117,6 +117,14 @@ overrides:
             # This does not multiply series - a given service reports one
             # environment - it disambiguates ones that were previously merged.
             - deployment.environment
+            # The APPLICATION a service belongs to (OTel's service.namespace),
+            # so a dashboard can show "costwise" rather than four unrelated
+            # service names. Same reasoning as deployment.environment directly
+            # above: a given service reports ONE namespace, so this does not
+            # multiply series - it separates ones that were previously merged.
+            # Without it the grouping exists on SDK metrics but not on the RED
+            # dashboards, which is where it would actually be used.
+            - service.namespace
 
 usage_report:
   reporting_enabled: false

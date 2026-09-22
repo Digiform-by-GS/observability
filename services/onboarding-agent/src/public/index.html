@@ -23,7 +23,12 @@
   p.sub { color:var(--muted); margin:0 0 1.25rem; }
   form { display:grid; gap:1.15rem; padding:1.25rem; border:1px solid var(--line);
          border-radius:10px; background:var(--card); }
-  label { display:grid; gap:.3rem; font-size:.85rem; color:var(--muted); }
+  /* align-content:start matters: .row stretches both labels to the taller
+     one's height, and without this the shorter label's auto rows absorb the
+     slack - which rendered as a large gap between the Team hint and its
+     input, making the column look mis-set rather than merely shorter. */
+  label { display:grid; gap:.3rem; align-content:start;
+          font-size:.85rem; color:var(--muted); }
   .lbl { font-weight:600; color:var(--fg); font-size:.9rem; }
   input, select { padding:.55rem .7rem; border:1px solid var(--line); border-radius:6px;
                   background:var(--bg); color:var(--fg); font:inherit; font-size:.9rem; }
@@ -130,8 +135,17 @@
       </label>
       <label>
         <span class="lbl">Team</span>
-        <span class="hint">Who owns the service, not what it is called. Used to attribute telemetry when several teams share the platform. Optional.</span>
-        <input name="team" placeholder="platform">
+        <span class="hint">Who owns the service. This selects the <strong>tenant</strong> your telemetry is stored under, and with it your own series quota — it is not just a label.</span>
+        <select name="team" id="team">
+          <option value="">Loading teams…</option>
+        </select>
+        <span class="hint" id="teamNote"></span>
+      </label>
+
+      <label>
+        <span class="lbl">Application <span style="font-weight:400">(optional)</span></span>
+        <span class="hint">The product this service is part of, when one application spans several services — <code>costwise-backend</code> and <code>costwise-frontend</code> are both <code>costwise</code>. Sets <code>service.namespace</code>, which groups them on dashboards. Leave blank for a standalone service.</span>
+        <input name="serviceNamespace" placeholder="costwise">
       </label>
     </div>
 
@@ -237,6 +251,44 @@ const jobsEl = document.getElementById('jobs');
 const tokWrap = document.getElementById('tokWrap');
 f.mode.addEventListener('change', () => { tokWrap.hidden = f.mode.value !== 'pr'; });
 
+// Teams come from the platform's own manifest, so the list cannot drift from
+// what the collector will actually route. It is a closed list on purpose: a
+// misspelled team is NOT rejected by the platform - it is accepted into the
+// shared catch-all where it looks entirely correct in Grafana - so the only
+// place that mistake can be prevented is before it is made. The server
+// re-checks, because a <select> means nothing to a curl request.
+const teamSel = document.getElementById('team');
+const teamNote = document.getElementById('teamNote');
+
+async function loadTeams() {
+  let list = { teams: [], catchAll: 'the shared pool', available: false };
+  try {
+    list = await (await fetch('/api/teams')).json();
+  } catch { /* fall through to the unavailable case below */ }
+
+  const opts = list.teams.map(t =>
+    `<option value="${esc(t.name)}"${t.description ? ` title="${esc(t.description)}"` : ''}>${esc(t.name)}</option>`
+  );
+  // Always offered, always last: "not listed" is a legitimate answer, and making
+  // it explicit is what turns landing in the catch-all into a decision someone
+  // took rather than a typo nobody saw.
+  opts.push(`<option value="">My team isn't listed yet</option>`);
+  teamSel.innerHTML = opts.join('');
+
+  if (!list.available) {
+    teamNote.innerHTML = '<strong>The team list could not be read from the platform.</strong> '
+      + 'Everything will go to the shared pool — tell the operator.';
+    teamNote.className = 'warn';
+  } else if (list.teams.length === 0) {
+    teamNote.textContent = 'No teams are configured on this platform yet.';
+  } else {
+    teamNote.textContent = `Not listed? Your telemetry shares the "${list.catchAll}" `
+      + 'pool and its quota with every other unassigned service. Ask the platform '
+      + 'operator to add your team.';
+  }
+}
+loadTeams();
+
 // Both conditionals ask for something only meaningful once the answer above
 // makes it meaningful: where the config lives, and the origin an operator must
 // allowlist. Asking either unconditionally is how a form teaches people to skip.
@@ -320,6 +372,7 @@ function render(jobs) {
           : j.status}</span>
         ${j.serviceName ? `<span class="badge">${esc(j.serviceName)}</span>` : ''}
         ${j.environment ? `<span class="badge">${esc(j.environment)}</span>` : ''}
+        ${j.serviceNamespace ? `<span class="badge">${esc(j.serviceNamespace)}</span>` : ''}
         <span class="badge">${j.mode}</span>
         <span class="badge">${esc(j.provider ?? '')}</span>
       </header>

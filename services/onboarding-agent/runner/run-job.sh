@@ -27,6 +27,7 @@ BUDGET_USD="${BUDGET_USD:-2.00}"
 DEPLOYMENT_CONFIG="${DEPLOYMENT_CONFIG:-unknown}"
 DEPLOYMENT_CONFIG_LOCATION="${DEPLOYMENT_CONFIG_LOCATION:-}"
 ENVIRONMENT="${ENVIRONMENT:-}"
+SERVICE_NAMESPACE="${SERVICE_NAMESPACE:-}"
 SIGNALS_REQUESTED="${SIGNALS_REQUESTED:-traces,metrics,logs}"
 APP_URL="${APP_URL:-}"
 BROWSER_INGEST="${BROWSER_INGEST:-proxy}"
@@ -100,13 +101,15 @@ jq -n --arg o "$OTLP_ENDPOINT" --arg g "$GRAFANA_URL" --arg p "${PYROSCOPE_URL:-
 # request. Enforcing it here rather than in the prompt takes it out of the
 # model's hands - the one time that rule lived only in prose, an agent broke it.
 if [ ! -f .observability/service.json ]; then
-  jq -n --arg d "$DEPLOYMENT_CONFIG" --arg l "$DEPLOYMENT_CONFIG_LOCATION"         --arg tm "$TEAM" \
+  jq -n --arg d "$DEPLOYMENT_CONFIG" --arg l "$DEPLOYMENT_CONFIG_LOCATION" \
+        --arg tm "$TEAM" --arg ns "$SERVICE_NAMESPACE" \
         --arg e "$ENVIRONMENT" --arg s "$SIGNALS_REQUESTED" --arg u "$APP_URL" \
         --arg bi "$BROWSER_INGEST" \
     '{deployment_config:$d}
      + (if $tm == "" then {} else {team:$tm} end)
      + (if $l == "" then {} else {deployment_config_location:$l} end)
      + (if $e == "" then {} else {environment:$e} end)
+     + (if $ns == "" then {} else {service_namespace:$ns} end)
      + {signals: ($s | split(",") | map(select(length > 0)))}
      + (if $u == "" then {} else {app_url:$u} end)
      + {browser_ingest:$bi}' \
@@ -118,6 +121,7 @@ fi
 DEPLOYMENT_CONFIG="$(jq -r '.deployment_config // "unknown"' .observability/service.json)"
 DEPLOYMENT_CONFIG_LOCATION="$(jq -r '.deployment_config_location // ""' .observability/service.json)"
 ENVIRONMENT="$(jq -r '.environment // ""' .observability/service.json)"
+SERVICE_NAMESPACE="$(jq -r '.service_namespace // ""' .observability/service.json)"
 SIGNALS_REQUESTED="$(jq -r '(.signals // ["traces","metrics","logs"]) | join(",")' .observability/service.json)"
 APP_URL="$(jq -r '.app_url // ""' .observability/service.json)"
 BROWSER_INGEST="$(jq -r '.browser_ingest // "proxy"' .observability/service.json)"
@@ -139,6 +143,7 @@ cp .observability/service.json /work/seed/service.json
 # does this too; doing it here as well covers a service.json committed by hand.
 DEPLOYMENT_CONFIG_LOCATION="$(printf '%s' "$DEPLOYMENT_CONFIG_LOCATION" | tr '\n\r' '  ' | cut -c1-256)"
 APP_URL="$(printf '%s' "$APP_URL" | tr '\n\r' '  ' | cut -c1-256)"
+SERVICE_NAMESPACE="$(printf '%s' "$SERVICE_NAMESPACE" | tr '\n\r' '  ' | cut -c1-64)"
 
 # The deployment-config rule, branched binary. The enum has four values because
 # that shapes the wording of the handoff, but there are only two behaviours:
@@ -241,6 +246,10 @@ Context for this run:
   metric and log. Say in your summary that you kept the existing name and
   why. Only use the value above when the repository has no name yet.
 - Team attribute: ${TEAM:-omit if unknown}
+- Application (service.namespace): ${SERVICE_NAMESPACE:-none given; omit it}
+  This groups several services into one application - costwise-backend and
+  costwise-frontend both belong to 'costwise'. It is NOT the service name and
+  NOT the team. Set it alongside team in OTEL_RESOURCE_ATTRIBUTES when given.
 
 Constraints for this environment:
 - You are running unattended. Never ask questions; make the call the skill
