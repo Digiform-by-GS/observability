@@ -235,32 +235,6 @@ def loki_runtime(tenants, defaults):
     return "\n".join(out) + "\n"
 
 
-def tempo_overrides(tenants, defaults):
-    """Emits the COMPLETE ingestion group for every tenant, deliberately.
-
-    Tempo's per-tenant overrides replace the defaults rather than merging, so a
-    partial ingestion block silently zeroes whatever it omits - and a zero
-    burst_size_bytes rejects every write regardless of the rate limit. That
-    shipped once and dropped traces in production; the error message talks about
-    a rate limit, so it points away from the missing field.
-
-    Traces are not routed, so in practice only the catch-all tenant receives
-    spans today. The per-tenant entries are still emitted so that enabling trace
-    routing later is a manifest change and not a new file.
-    """
-    out = [BANNER, "\noverrides:"]
-    for t in tenants:
-        name = t["name"]
-        out.append(f"""  {name}:
-    ingestion:
-      rate_limit_bytes: {limit(t, defaults, 'tempo', 'ingestion_rate_limit_bytes')}
-      burst_size_bytes: {limit(t, defaults, 'tempo', 'ingestion_burst_size_bytes')}
-      max_traces_per_user: {limit(t, defaults, 'tempo', 'ingestion_max_traces_per_user')}
-    metrics_generator:
-      max_active_series: {limit(t, defaults, 'tempo', 'metrics_generator_max_active_series')}""")
-    return "\n".join(out) + "\n"
-
-
 # --- team list for the onboarding form ----------------------------------------
 
 def teams_json(tenants):
@@ -345,12 +319,76 @@ single-tenant `loki-tail` datasource.
 """
 
 
+TEMPO_CONFIG = ROOT / "infra/tempo/tempo-config.yaml"
 DATASOURCES = ROOT / "infra/grafana/provisioning/datasources/datasources.yaml"
 
 # Each store names its pre-tenancy bucket differently, so the read lists differ.
 # These stay until data written before the cutover ages out (7d logs and traces,
 # 30d metrics), then they can be dropped from the manifest's consumers.
 LEGACY = {"prometheus": "anonymous", "loki": "fake", "tempo": "single-tenant"}
+
+
+def check_tempo_defaults(defaults):
+    """Assert tempo-config.yaml's overrides.defaults match the manifest.
+
+    Tempo gets no generated per-tenant file, because a per-tenant entry replaces
+    the WHOLE defaults object for that tenant - an entry naming only `ingestion`
+    also wipes `metrics_generator.processors`, which stopped span-metrics
+    platform-wide for six days. So Tempo's limits live in tempo-config.yaml and
+    apply to every tenant uniformly.
+
+    That leaves the numbers in two files, which is how they drift. They are
+    asserted here rather than generated, the same way the Grafana datasource
+    tenant lists are: the manifest stays the place a human reads and edits, and
+    a disagreement fails the build instead of being found on a blank dashboard.
+    """
+    if not TEMPO_CONFIG.exists():
+        die(f"{TEMPO_CONFIG} is missing")
+    doc = yaml.safe_load(TEMPO_CONFIG.read_text(encoding="utf-8"))
+    overrides = doc.get("overrides") or {}
+    d = overrides.get("defaults") or {}
+    ing = d.get("ingestion") or {}
+    gen = d.get("metrics_generator") or {}
+    problems = []
+
+    if overrides.get("per_tenant_override_config"):
+        problems.append(
+            "  per_tenant_override_config is set - a per-tenant entry replaces the "
+            "entire defaults object, silently disabling the metrics generator for "
+            "that tenant. See the comment in tempo-config.yaml."
+        )
+
+    for key, manifest_key in (
+        ("rate_limit_bytes", "ingestion_rate_limit_bytes"),
+        ("burst_size_bytes", "ingestion_burst_size_bytes"),
+        ("max_traces_per_user", "ingestion_max_traces_per_user"),
+    ):
+        expected = defaults["tempo"][manifest_key]
+        if ing.get(key) != expected:
+            problems.append(
+                f"  overrides.defaults.ingestion.{key} is {ing.get(key)!r}, "
+                f"manifest says {expected!r}"
+            )
+
+    expected_gen = defaults["tempo"]["metrics_generator_max_active_series"]
+    if gen.get("max_active_series") != expected_gen:
+        problems.append(
+            f"  overrides.defaults.metrics_generator.max_active_series is "
+            f"{gen.get('max_active_series')!r}, manifest says {expected_gen!r}"
+        )
+
+    # The one that actually broke. Without processors the generator produces
+    # nothing at all - no span-metrics, no service graph, no exemplars - and
+    # logs nothing about it.
+    if not gen.get("processors"):
+        problems.append(
+            "  overrides.defaults.metrics_generator.processors is empty - the "
+            "generator produces NOTHING without it, and says nothing about it."
+        )
+
+    if problems:
+        die("infra/tempo/tempo-config.yaml disagrees with infra/tenants.yaml:"
+            + "\n" + "\n".join(problems))
 
 
 def check_datasources(tenants):
@@ -416,7 +454,6 @@ def render(tenants, defaults, budget, total):
         "infra/otel-collector/tenants.platform.yaml": collector_fragment(tenants),
         "infra/mimir/runtime.yaml": mimir_runtime(tenants, defaults),
         "infra/loki/runtime.yaml": loki_runtime(tenants, defaults),
-        "infra/tempo/overrides.yaml": tempo_overrides(tenants, defaults),
         "infra/teams.json": teams_json(tenants),
         "infra/TENANTS.md": summary(tenants, defaults, budget, total),
     }
@@ -425,6 +462,7 @@ def render(tenants, defaults, budget, total):
 if __name__ == "__main__":
     check = "--check" in sys.argv
     _doc, tenants, defaults, budget, total = load()
+    check_tempo_defaults(defaults)
     check_datasources(tenants)
     stale = []
     for rel, body in render(tenants, defaults, budget, total).items():

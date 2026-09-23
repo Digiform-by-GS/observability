@@ -78,6 +78,22 @@ operator's side)? Report which signal failed and where it stopped.
 | Runtime metrics | Node: `nodejs_eventloop_utilization` / Go: `process_runtime_go_goroutines` filtered on `service_name="<svc>"` | Present (confirms SDK metrics beyond spans) |
 | **Tenant placement** | `traces_spanmetrics_calls_total{service="<svc>", __tenant_id__="<team>"}` and the same query against `__tenant_id__="unattributed"` | Non-empty for the team, **empty** for the catch-all. Skip if the platform is single-tenant |
 
+**If the two `traces_spanmetrics_*` rows come back empty, check whether it is
+the service or the platform before touching the service.** Those metrics are
+not emitted by the app — Tempo's metrics generator derives them from spans it
+has already stored — so an uninstrumented service and a stopped generator look
+identical here: an empty result, no error, no log line. Run
+`sum(tempo_metrics_generator_registry_active_series)`. If it is `0` or absent
+while traces are plainly arriving in Tempo, the generator is down platform-wide
+and no amount of client-side work will fill those panels; report it to the
+platform owner rather than re-instrumenting. It has happened, and it lasted six
+days because every dashboard it feeds renders empty rather than broken.
+
+Also prefer `increase(traces_spanmetrics_calls_total{service="<svc>"}[5m]) > 0`
+over bare non-emptiness when re-running this on a service that was verified
+before: the plain matcher is satisfied by that earlier run's stored data, so it
+passes while the generator is dead.
+
 **Span-name check is a hard gate, not advice.** It has two distinct failure
 modes, and they look nothing alike:
 

@@ -62,15 +62,28 @@ storage:
       path: /var/tempo/blocks
 
 overrides:
-  # Per-tenant limits, hot-reloaded on the period below - no restart. Generated
-  # from infra/tenants.yaml by scripts/gen-tenants.py.
+  # NO per_tenant_override_config, and that is load-bearing rather than an
+  # omission. Tempo's per-tenant overrides replace the ENTIRE defaults object
+  # for that tenant, not merely the sub-blocks the entry names. A tenant with
+  # only an `ingestion:` entry therefore loses `metrics_generator.processors`
+  # too, the generator silently stops producing for it, and every RED
+  # dashboard, the service graph and all exemplars go blank with nothing
+  # logged and no alert. That is exactly what happened here: span-metrics were
+  # dead platform-wide for six days.
   #
-  # The loader is STRICT: one unknown key is a hard load failure, not a warning,
-  # which is why that file is generated rather than hand-edited.
-  per_tenant_override_config: /etc/tempo/overrides.yaml
-  per_tenant_override_period: 10s
-
-  # Fallback for any tenant with no entry in the file above.
+  # Proven rather than reasoned: with an overrides file, a tenant WITH an
+  # entry produced zero generator series while a tenant with NO entry produced
+  # 45 from identical spans.
+  #
+  # Per-tenant Tempo limits also buy nothing today, because traces are
+  # deliberately NOT routed - every span lands in one tenant, so a per-tenant
+  # trace limit has no second tenant to distinguish. Mimir's and Loki's
+  # per-tenant limits are unaffected and still generated.
+  #
+  # IF TRACE ROUTING IS EVER ENABLED and per-tenant Tempo limits are wanted
+  # again, every entry must carry the COMPLETE object - ingestion AND the whole
+  # metrics_generator block including processors and every dimension below -
+  # or this failure returns.
   defaults:
     # Tempo's own ingestion defaults, stated rather than inherited.
     #
@@ -90,6 +103,23 @@ overrides:
     metrics_generator:
       processors: [service-graphs, span-metrics, local-blocks]
       generate_native_histograms: both
+      # The per-tenant generator cap, applied UNIFORMLY from here rather than
+      # per tenant in the generated overrides file.
+      #
+      # It lived there once and wiped this entire block: a per-tenant overrides
+      # entry REPLACES the defaults instead of merging, so a metrics_generator
+      # block containing only max_active_series left `processors` empty for
+      # every tenant. The generator then did nothing at all, and span-metrics
+      # stopped platform-wide for six days - no RED dashboards, no service
+      # graph, no exemplars, and four alert rules sitting at noDataState: OK.
+      #
+      # Defaults are the per-tenant fallback, so every tenant still gets this
+      # cap; it is just the same number for all of them. Differentiating it
+      # again means emitting this WHOLE block per tenant - processors,
+      # histograms and every dimension below - and accepting a second place for
+      # them to drift. Do not pay that until a tenant genuinely needs a
+      # different cap.
+      max_active_series: 10000
       # Add messaging attributes as span-metrics dimensions so the async flow is
       # queryable even though it does NOT appear as service-graph edges.
       #
@@ -125,6 +155,15 @@ overrides:
             # Without it the grouping exists on SDK metrics but not on the RED
             # dashboards, which is where it would actually be used.
             - service.namespace
+            # Which TEAM owns the service, so the RED dashboards can be filtered
+            # by team and not only by service. The tenant is the team, so this
+            # is also recoverable from __tenant_id__ via query federation - but
+            # that is a Mimir query-path artifact rather than a label the data
+            # carries, and it would vanish if federation were reconfigured.
+            #
+            # One team per service, so like the two dimensions above this does
+            # not multiply series.
+            - team
 
 usage_report:
   reporting_enabled: false

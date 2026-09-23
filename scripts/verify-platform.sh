@@ -162,6 +162,38 @@ else
   note "high-cardinality labels pruned" "OK"
 fi
 
+# --- Tempo's metrics generator is actually producing --------------------------
+# Nothing else here notices when it stops. It has no effect on ingest, logs
+# nothing, and every dashboard it feeds simply renders empty - which is
+# indistinguishable from an idle platform. It stopped for six days and the only
+# reason anyone looked was an unrelated question.
+#
+# increase() over a short window, NOT a bare existence check. The service name
+# is fixed, so `traces_spanmetrics_calls_total{service="platform-smoke"}`
+# matches every previous run's data and is satisfied by history. That is exactly
+# how the original check passed while the generator was dead: it read a value
+# from the retired pre-tenancy tenant and reported success. A non-zero increase
+# can only come from spans generated during THIS run.
+#
+# Retried because generation is not immediate: the registry collects on an
+# interval and then remote-writes, so there is a real lag after the push above.
+GEN_Q='sum(increase(traces_spanmetrics_calls_total{service="'"$SVC"'"}[5m])) > 0'
+GEN_OK=0
+for _ in 1 2 3 4 5 6; do
+  # The comparison lives in the QUERY, so Prometheus returns an empty result
+  # when it is false and the shell never parses a number. increase()
+  # extrapolates and can legitimately return 0.5 for a single fresh span, so a
+  # string test for a leading "0." would have read real data as zero.
+  GEN="$(inet --get http://mimir:9009/prometheus/api/v1/query --data-urlencode "query=$GEN_Q")"
+  case "$GEN" in *'"result":[{'*) GEN_OK=1; break ;; esac
+  sleep 10
+done
+if [ "$GEN_OK" = "1" ]; then
+  note "span-metrics generated (fresh)" "OK"
+else
+  bad "span-metrics generated (fresh)" "no increase for $SVC - the generator is not producing. Check that every tenant with an entry in a per-tenant overrides file still has metrics_generator.processors; a partial entry REPLACES the defaults and silently disables it"
+fi
+
 echo
 echo "=== 5. memory headroom ==="
 docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'

@@ -330,3 +330,62 @@ groups:
                 - evaluator: { type: gt, params: [500] }
         noDataState: OK
         execErrState: Error
+
+      # The generator can stop dead while everything else looks perfectly
+      # healthy. It is not in the ingest path, so traces keep arriving and being
+      # stored; it logs nothing when it produces nothing; and every dashboard it
+      # feeds simply renders empty, which is indistinguishable from an idle
+      # platform. It stopped for six days and was found by accident.
+      #
+      # The cause was a per-tenant Tempo overrides entry: such an entry REPLACES
+      # the entire defaults object for that tenant, so an entry naming only
+      # `ingestion` also wiped `metrics_generator.processors`.
+      #
+      # Deliberately conditioned on spans arriving. Zero generated series is
+      # correct on an idle platform; zero generated series WHILE spans are being
+      # received is not.
+      - uid: platform-generator-silent
+        title: Tempo is receiving spans but generating no metrics
+        condition: THRESHOLD
+        for: 15m
+        annotations:
+          summary: "Spans are arriving but the metrics generator is producing nothing"
+          description: >-
+            Every RED dashboard, the service graph, Blast Radius and all
+            exemplars are fed by this. They are blank right now, and nothing
+            else will tell you: ingest is unaffected, traces are still queryable,
+            and no error is logged.
+            First thing to check is whether a tenant has an entry in a
+            per-tenant Tempo overrides file. Such an entry replaces the WHOLE
+            defaults object, so one naming only `ingestion` silently removes
+            metrics_generator.processors and disables generation for that tenant.
+            Confirm with tempo_metrics_generator_registry_active_series by tenant
+            - a tenant receiving spans with no series there is the one affected.
+        labels:
+          severity: critical
+          signal: platform
+        data:
+          - refId: SILENT
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: SILENT
+              instant: true
+              # Spans arriving (>0) while generated series are absent or zero.
+              # `or vector(0)` keeps the expression defined when the generator
+              # metric does not exist at all - which is precisely the broken
+              # state, and would otherwise evaluate to no-data and never fire.
+              expr: >-
+                (sum(rate(tempo_distributor_spans_received_total[10m])) > 0)
+                and
+                (sum(tempo_metrics_generator_registry_active_series) or vector(0)) < 1
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: SILENT
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
