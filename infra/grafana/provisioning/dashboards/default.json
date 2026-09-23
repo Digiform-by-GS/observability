@@ -96,7 +96,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{service=~\"$service\", deployment_environment=~\"$environment\"}[5m]))",
+          "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{service=~\"$service\", team=~\"$team\", deployment_environment=~\"$environment\"}[5m]))",
           "legendFormat": "{{service}}",
           "range": true,
           "refId": "A"
@@ -180,7 +180,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\", service=~\"$service\", deployment_environment=~\"$environment\"}[5m]))",
+          "expr": "sum by (service) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\", service=~\"$service\", team=~\"$team\", deployment_environment=~\"$environment\"}[5m]))",
           "legendFormat": "{{service}}",
           "range": true,
           "refId": "A"
@@ -264,7 +264,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket{service=~\"$service\", deployment_environment=~\"$environment\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket{service=~\"$service\", team=~\"$team\", deployment_environment=~\"$environment\"}[5m])))",
           "legendFormat": "{{service}}",
           "range": true,
           "refId": "A"
@@ -321,6 +321,25 @@
   "templating": {
     "list": [
       {
+        "name": "team",
+        "label": "Team",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(traces_spanmetrics_calls_total, team)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "sort": 1,
+        "definition": "label_values(traces_spanmetrics_calls_total, team)"
+      },
+      {
         "name": "service",
         "label": "Service",
         "type": "query",
@@ -329,7 +348,7 @@
           "uid": "prometheus"
         },
         "query": {
-          "query": "label_values(traces_spanmetrics_calls_total, service)",
+          "query": "label_values(traces_spanmetrics_calls_total{team=~\"$team\"}, service)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
@@ -346,7 +365,8 @@
           ]
         },
         "options": [],
-        "sort": 1
+        "sort": 1,
+        "definition": "label_values(traces_spanmetrics_calls_total{team=~\"$team\"}, service)"
       },
       {
         "name": "environment",

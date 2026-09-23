@@ -83,9 +83,11 @@ attribute that onboarded services already set, so no client change was needed
 and no service declares a tenant of its own.
 
 Everything per-tenant is generated from `infra/tenants.yaml` by
-`scripts/gen-tenants.py` — collector exporters and routing connectors, the three
-backends' runtime-override files, and the operator summary in `infra/TENANTS.md`.
-Never hand-edit those outputs; CI fails if they drift from the manifest.
+`scripts/gen-tenants.py` — collector exporters and routing connectors, Mimir's
+and Loki's runtime-override files, the team list the onboarding form reads, and
+the operator summary in `infra/TENANTS.md`. Never hand-edit those outputs; CI
+fails if they drift from the manifest. **Tempo is the exception and has no
+generated per-tenant file at all** — see trap #2.
 
 Four things that are easy to get wrong here:
 
@@ -94,10 +96,26 @@ Four things that are easy to get wrong here:
    mode, so Mimir first means every span-metric write 401s — and the collector
    is not in that path, so no exporter metric and no alert fires. The dashboards
    just go quiet.
-2. **Tempo's per-tenant overrides REPLACE the defaults, they do not merge.** A
-   partial `ingestion:` block zeroes what it omits, and a zero `burst_size_bytes`
-   rejects every write regardless of the rate. This dropped traces in production.
-   Always write the whole group.
+2. **Tempo's per-tenant overrides REPLACE the defaults, they do not merge — so
+   Tempo now has no per-tenant overrides file.** This trap bit twice. First a
+   partial `ingestion:` block zeroed what it omitted, and a zero
+   `burst_size_bytes` rejects every write regardless of the rate — that dropped
+   traces in production. Then, after the trap was written down here, an
+   adjacent `metrics_generator:` block carrying only `max_active_series` wiped
+   `processors`, and **span-metrics were dead platform-wide for six days**: no
+   RED dashboards, no service graph, no exemplars, four alert rules sitting at
+   `noDataState: OK`, and nothing logged anywhere. Proven rather than reasoned —
+   a tenant *with* an entry generated zero series while a tenant with *no* entry
+   generated 45 from identical spans.
+
+   The fix is structural, not another "remember to write the whole group":
+   Tempo's limits live in `overrides.defaults` in `infra/tempo/tempo-config.yaml`
+   and apply to every tenant uniformly, `per_tenant_override_config` is unset,
+   and `gen-tenants.py` **asserts** that file against the manifest instead of
+   generating one (including that `processors` is non-empty). Per-tenant Tempo
+   limits also buy nothing today, because traces are not routed — see trap #3.
+   Reintroducing them means emitting the *complete* object per tenant,
+   `processors` and every span-metrics dimension included.
 3. **Traces are deliberately NOT routed.** Tempo's generator pairs spans within
    one trace within one tenant, so splitting a cross-team trace would destroy the
    service-graph edge between those teams permanently — federation cannot recover

@@ -163,13 +163,21 @@ jobs:
           git diff --exit-code -- infra/grafana/provisioning/dashboards/ \
             || { echo "^ dashboards differ from gen-dashboards.py output"; exit 1; }
 
-      # All three backends load their per-tenant overrides with a STRICT decoder:
+      # Both backends load their per-tenant overrides with a STRICT decoder:
       # one unknown key is a hard load failure at runtime, not a warning. Parsing
       # them here turns that into a failed build instead of a backend that will
       # not start.
+      #
+      # TEMPO IS DELIBERATELY ABSENT and must not be added back. It has no
+      # per-tenant overrides file at all: a per-tenant entry REPLACES the whole
+      # defaults object rather than merging, so an entry naming only `ingestion`
+      # also wipes `metrics_generator.processors` and silently kills span-metrics
+      # for that tenant. Tempo's limits live in tempo-config.yaml instead, and
+      # the `gen-tenants.py --check` step above asserts them against the
+      # manifest - including that processors is non-empty.
       - name: per-tenant overrides parse
         run: |
-          for f in infra/mimir/runtime.yaml infra/loki/runtime.yaml infra/tempo/overrides.yaml; do
+          for f in infra/mimir/runtime.yaml infra/loki/runtime.yaml; do
             python3 -c "import sys,yaml; d=yaml.safe_load(open(sys.argv[1]));
           assert isinstance(d.get('overrides'), dict) and d['overrides'], 'no overrides map'
           print('  ok', sys.argv[1], '->', ', '.join(sorted(d['overrides'])))" "$f"
