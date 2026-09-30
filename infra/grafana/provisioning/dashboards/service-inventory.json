@@ -26,7 +26,7 @@
     {
       "type": "table",
       "title": "Services",
-      "description": "Request rate, error ratio and p95 per service. Error ratio is blank rather than 0 for a service with no traffic in the window - a ratio with no denominator is not 0%.",
+      "description": "Request rate, error ratio and p95 per service. A service with traffic and no failures reads 0%, not blank. A service with no traffic at all in the window has no row here at all, which is the honest answer - a ratio with no denominator is not 0%.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -156,7 +156,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (service, team, deployment_environment) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\", team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval])) / sum by (service, team, deployment_environment) (rate(traces_spanmetrics_calls_total{team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval]))",
+          "expr": "(sum by (service, team, deployment_environment) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\", team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval])) or sum by (service, team, deployment_environment) (rate(traces_spanmetrics_calls_total{team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval])) * 0) / sum by (service, team, deployment_environment) (rate(traces_spanmetrics_calls_total{team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval]))",
           "refId": "B",
           "range": false,
           "instant": true,
