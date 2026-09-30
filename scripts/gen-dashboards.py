@@ -150,6 +150,53 @@ def logs(title, expr, x, y, w, h, desc=""):
     }
 
 
+def table(title, targets, x, y, w, h, desc="", transformations=None,
+          units=None, sort_by=None, descending=True):
+    """A list panel. Use it when the question is "what exists", not "what changed".
+
+    `units` maps a column name to a Grafana unit, applied as a field override -
+    a table mixes rates, ratios and durations in one frame, so a single
+    panel-wide unit would mislabel two columns out of three.
+
+    Targets are instant + table-formatted. A range query would return a series
+    per timestamp and render one row per scrape, which looks like duplicate
+    services rather than a wrong panel setting.
+    """
+    for t in targets:
+        t["instant"] = True
+        t["range"] = False
+        t["format"] = "table"
+    overrides = [
+        {"matcher": {"id": "byName", "options": col},
+         "properties": [{"id": "unit", "value": unit}]}
+        for col, unit in (units or {}).items()
+    ]
+    return {
+        "type": "table",
+        "title": title,
+        "description": desc,
+        "datasource": targets[0]["datasource"],
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "fieldConfig": {
+            "defaults": {
+                "custom": {"align": "auto", "cellOptions": {"type": "auto"},
+                           "inspect": False, "filterable": True},
+                "thresholds": {"mode": "absolute",
+                               "steps": [{"color": "text", "value": None}]},
+            },
+            "overrides": overrides,
+        },
+        "options": {
+            "showHeader": True,
+            "cellHeight": "sm",
+            "footer": {"show": False, "reducer": ["sum"], "countRows": False, "fields": ""},
+            "sortBy": ([{"displayName": sort_by, "desc": descending}] if sort_by else []),
+        },
+        "transformations": transformations or [],
+        "targets": targets,
+    }
+
+
 def dashboard(uid, title, description, tags, panels, templating=None, time_from="now-30m"):
     return {
         "annotations": {"list": []},
@@ -433,7 +480,152 @@ browser_panels = [
     ),
 ]
 
+# ------------------------------------------------------------- inventory ---
+# The front door. Every other dashboard here answers a question about a service
+# you have already named: Overview needs the Service variable, Blast Radius
+# starts from an incident, Platform Health is about the stack. Nothing answered
+# "what services exist, who owns them, and are they all actually wired up" - so
+# the only way to find out was to know the answer already.
+#
+# This became possible when `team` was added as a span-metrics dimension. Before
+# that, the ownership column did not exist in the data at any price.
+#
+# NO Service variable, deliberately - same reasoning as Blast Radius. Filtering
+# an inventory by the thing it is an inventory OF defeats it. Team and
+# Environment narrow it without hiding what you came to see.
+TEAM_VAR = query_var(
+    "team", "Team", "label_values(traces_spanmetrics_calls_total, team)")
+INV_ENV_VAR = query_var(
+    "environment", "Environment",
+    "label_values(traces_spanmetrics_calls_total, deployment_environment)")
+
+_SEL = 'team=~"$team", deployment_environment=~"$environment"'
+_BY = "service, team, deployment_environment"
+
+inventory_panels = [
+    text(
+        "",
+        "## Service inventory\n"
+        "Every service the platform has heard from, who owns it, and how it is doing right now.\n\n"
+        "**The two coverage lists below are the point of this page.** A service is only fully "
+        "onboarded when it appears in *both*. Traces and metrics arriving while logs are absent is "
+        "the common half-onboarded state, and it is invisible everywhere else: the RED panels fill "
+        "in, the service graph draws, nothing errors, and the gap surfaces months later when "
+        "someone opens an incident and finds no logs to read. A service in the traces list but not "
+        "in the logs list is exactly that case.\n\n"
+        "*An empty row is not a bug.* A service is listed only while it is sending; one that "
+        "stopped drops off after the dashboard time range, which is itself the signal.",
+        0, 0, 24, 6),
+
+    # Three metrics, one row per service. `merge` rather than a join: all three
+    # queries group by the same three labels against the same datasource, so the
+    # label columns are identical and merge lines them up on shared values.
+    # joinByField takes a single field and would collapse the team/env split.
+    table(
+        "Services",
+        [
+            target("sum by (%s) (rate(traces_spanmetrics_calls_total{%s}[$__rate_interval]))"
+                   % (_BY, _SEL), None, ref="A"),
+            target("sum by (%s) (rate(traces_spanmetrics_calls_total"
+                   "{status_code=\"STATUS_CODE_ERROR\", %s}[$__rate_interval])) "
+                   "/ sum by (%s) (rate(traces_spanmetrics_calls_total{%s}[$__rate_interval]))"
+                   % (_BY, _SEL, _BY, _SEL), None, ref="B"),
+            target("histogram_quantile(0.95, sum by (le, %s) "
+                   "(rate(traces_spanmetrics_latency_bucket{%s}[$__rate_interval])))"
+                   % (_BY, _SEL), None, ref="C"),
+        ],
+        0, 6, 24, 9,
+        desc="Request rate, error ratio and p95 per service. Error ratio is blank rather than 0 for "
+             "a service with no traffic in the window - a ratio with no denominator is not 0%.",
+        # The label columns are produced by the datasource FRONTEND, not the
+        # backend: /api/ds/query returns bare Time+Value frames for these exact
+        # queries, while the browser adds service/team/environment as columns.
+        # So an API response is not evidence about this panel either way - the
+        # single-query table in blast-radius.json is, and it renames "Value".
+        #
+        # Multiple queries in one table panel are named "Value #<refId>", which
+        # is what merge then lines up on the shared label columns. "Value" is
+        # listed too as a harmless fallback: if these ever arrive as a single
+        # frame, the column is still labelled instead of showing raw. An
+        # unmatched renameByName key is ignored, so carrying both costs nothing.
+        transformations=[
+            {"id": "merge", "options": {}},
+            {"id": "organize", "options": {
+                "excludeByName": {"Time": True},
+                "renameByName": {
+                    "service": "Service", "team": "Team",
+                    "deployment_environment": "Environment",
+                    "Value #A": "Requests/sec", "Value #B": "Error ratio",
+                    "Value #C": "p95 latency", "Value": "Requests/sec",
+                },
+            }},
+        ],
+        units={"Requests/sec": "reqps", "Error ratio": "percentunit", "p95 latency": "s"},
+        sort_by="Requests/sec"),
+
+    # Two lists side by side rather than one joined table. A cross-datasource
+    # join needs the key renamed (span-metrics say `service`, Loki says
+    # `service_name`), and `organize` is documented to work on a single query
+    # only - so the join would rest on a transformation chain whose failure mode
+    # is an empty panel with no error. Two lists cannot fail that way, and
+    # comparing them is the entire task.
+    table(
+        "Sending traces",
+        [target("sum by (service, team) (rate(traces_spanmetrics_calls_total{%s}[$__rate_interval]))"
+                % _SEL, None, ref="A")],
+        0, 15, 8, 9,
+        desc="Derived by Tempo's metrics generator. These land in the catch-all Mimir tenant "
+             "whatever the team is, because traces are deliberately not routed - the datasource "
+             "federates across tenants, so the Team column is still correct.",
+        transformations=[{"id": "organize", "options": {
+            "excludeByName": {"Time": True},
+            "renameByName": {"service": "Service", "team": "Team", "Value": "Requests/sec"}}}],
+        units={"Requests/sec": "reqps"},
+        sort_by="Service", descending=False),
+
+    table(
+        "Sending logs",
+        [target("sum by (service_name) (count_over_time({service_name=~\".+\"}[$__range]))",
+                None, datasource=LOKI, ref="A")],
+        8, 15, 8, 9,
+        desc="A service in the traces list but missing here emits no OTLP logs at all. In Node that "
+             "is usually a worker-thread pino transport; in Go it is logger.Info instead of "
+             "InfoContext, or a framework logger writing straight to stdout.",
+        transformations=[{"id": "organize", "options": {
+            "excludeByName": {"Time": True},
+            "renameByName": {"service_name": "Service", "Value": "Lines in range"}}}],
+        sort_by="Service", descending=False),
+
+    table(
+        "Top failing operations",
+        # `> 0` inside the topk is load-bearing. Without it topk returns the
+        # highest-ranked series regardless of value, so an operation that failed
+        # once last week and is now at 0/sec still occupies a row - the panel
+        # reads as "these things are failing" while listing nothing that is.
+        # Verified: before this filter the query returned span_name="client" at
+        # exactly 0 on an otherwise healthy stack.
+        [target("topk(15, sum by (service, span_name) (rate(traces_spanmetrics_calls_total"
+                "{status_code=\"STATUS_CODE_ERROR\", %s}[$__rate_interval])) > 0)" % _SEL,
+                None, ref="A")],
+        16, 15, 8, 9,
+        desc="Grouped by operation rather than by service, so one broken endpoint does not read as "
+             "a broken service. Empty is the healthy state here, and empty means genuinely zero - "
+             "operations sitting at 0/sec are filtered out rather than ranked.",
+        transformations=[{"id": "organize", "options": {
+            "excludeByName": {"Time": True},
+            "renameByName": {"service": "Service", "span_name": "Operation",
+                             "Value": "Errors/sec"}}}],
+        units={"Errors/sec": "reqps"},
+        sort_by="Errors/sec"),
+]
+
 DASHBOARDS = [
+    ("service-inventory.json", dashboard(
+        "service-inventory", "Service Inventory",
+        "Every service the platform has heard from, its owner, its health, and whether it is "
+        "fully onboarded across all three signals.",
+        ["observability", "inventory"], inventory_panels,
+        [TEAM_VAR, INV_ENV_VAR], time_from="now-1h")),
     ("platform-health.json", dashboard(
         "platform-health", "Platform Health",
         "Health of the observability stack itself — ingest, export, backends, and the series cap.",
