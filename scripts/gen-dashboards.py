@@ -526,17 +526,29 @@ inventory_panels = [
         [
             target("sum by (%s) (rate(traces_spanmetrics_calls_total{%s}[$__rate_interval]))"
                    % (_BY, _SEL), None, ref="A"),
-            target("sum by (%s) (rate(traces_spanmetrics_calls_total"
+            # `or <total> * 0` is what makes this column exist at all. With
+            # nothing failing anywhere the numerator is an EMPTY vector, and
+            # empty / anything is empty - so on a healthy platform the Error
+            # ratio column was blank for every service, which is also exactly
+            # how it would look if the data were missing. Verified against live
+            # data: 0 rows before, 4 rows of 0 after.
+            #
+            # The multiply-by-zero exists only to mint a zero-valued series
+            # carrying the same label set. `or vector(0)` is the reflex here and
+            # is wrong - it drops the labels, so the row cannot join the others.
+            target("(sum by (%s) (rate(traces_spanmetrics_calls_total"
                    "{status_code=\"STATUS_CODE_ERROR\", %s}[$__rate_interval])) "
-                   "/ sum by (%s) (rate(traces_spanmetrics_calls_total{%s}[$__rate_interval]))"
-                   % (_BY, _SEL, _BY, _SEL), None, ref="B"),
+                   "or sum by (%s) (rate(traces_spanmetrics_calls_total{%s}[$__rate_interval])) * 0)"
+                   " / sum by (%s) (rate(traces_spanmetrics_calls_total{%s}[$__rate_interval]))"
+                   % (_BY, _SEL, _BY, _SEL, _BY, _SEL), None, ref="B"),
             target("histogram_quantile(0.95, sum by (le, %s) "
                    "(rate(traces_spanmetrics_latency_bucket{%s}[$__rate_interval])))"
                    % (_BY, _SEL), None, ref="C"),
         ],
         0, 6, 24, 9,
-        desc="Request rate, error ratio and p95 per service. Error ratio is blank rather than 0 for "
-             "a service with no traffic in the window - a ratio with no denominator is not 0%.",
+        desc="Request rate, error ratio and p95 per service. A service with traffic and no failures "
+             "reads 0%, not blank. A service with no traffic at all in the window has no row here "
+             "at all, which is the honest answer - a ratio with no denominator is not 0%.",
         # The label columns are produced by the datasource FRONTEND, not the
         # backend: /api/ds/query returns bare Time+Value frames for these exact
         # queries, while the browser adds service/team/environment as columns.
