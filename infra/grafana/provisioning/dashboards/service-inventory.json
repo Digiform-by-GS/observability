@@ -1,0 +1,533 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Every service the platform has heard from, its owner, its health, and whether it is fully onboarded across all three signals.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Service inventory\nEvery service the platform has heard from, who owns it, and how it is doing right now.\n\n**The two coverage lists below are the point of this page.** A service is only fully onboarded when it appears in *both*. Traces and metrics arriving while logs are absent is the common half-onboarded state, and it is invisible everywhere else: the RED panels fill in, the service graph draws, nothing errors, and the gap surfaces months later when someone opens an incident and finds no logs to read. A service in the traces list but not in the logs list is exactly that case.\n\n*An empty row is not a bug.* A service is listed only while it is sending; one that stopped drops off after the dashboard time range, which is itself the signal."
+      },
+      "transparent": true
+    },
+    {
+      "type": "table",
+      "title": "Services",
+      "description": "Request rate, error ratio and p95 per service. Error ratio is blank rather than 0 for a service with no traffic in the window - a ratio with no denominator is not 0%.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Requests/sec"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "reqps"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Error ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95 latency"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Requests/sec",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "service": "Service",
+              "team": "Team",
+              "deployment_environment": "Environment",
+              "Value #A": "Requests/sec",
+              "Value #B": "Error ratio",
+              "Value #C": "p95 latency",
+              "Value": "Requests/sec"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (service, team, deployment_environment) (rate(traces_spanmetrics_calls_total{team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval]))",
+          "refId": "A",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (service, team, deployment_environment) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\", team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval])) / sum by (service, team, deployment_environment) (rate(traces_spanmetrics_calls_total{team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval]))",
+          "refId": "B",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, service, team, deployment_environment) (rate(traces_spanmetrics_latency_bucket{team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval])))",
+          "refId": "C",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Sending traces",
+      "description": "Derived by Tempo's metrics generator. These land in the catch-all Mimir tenant whatever the team is, because traces are deliberately not routed - the datasource federates across tenants, so the Team column is still correct.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Requests/sec"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "reqps"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Service",
+            "desc": false
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "service": "Service",
+              "team": "Team",
+              "Value": "Requests/sec"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (service, team) (rate(traces_spanmetrics_calls_total{team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval]))",
+          "refId": "A",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Sending logs",
+      "description": "A service in the traces list but missing here emits no OTLP logs at all. In Node that is usually a worker-thread pino transport; in Go it is logger.Info instead of InfoContext, or a framework logger writing straight to stdout.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 8,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Service",
+            "desc": false
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "service_name": "Service",
+              "Value": "Lines in range"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum by (service_name) (count_over_time({service_name=~\".+\"}[$__range]))",
+          "refId": "A",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Top failing operations",
+      "description": "Grouped by operation rather than by service, so one broken endpoint does not read as a broken service. Empty is the healthy state here, and empty means genuinely zero - operations sitting at 0/sec are filtered out rather than ranked.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errors/sec"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "reqps"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Errors/sec",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "service": "Service",
+              "span_name": "Operation",
+              "Value": "Errors/sec"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "topk(15, sum by (service, span_name) (rate(traces_spanmetrics_calls_total{status_code=\"STATUS_CODE_ERROR\", team=~\"$team\", deployment_environment=~\"$environment\"}[$__rate_interval])) > 0)",
+          "refId": "A",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "observability",
+    "inventory"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "team",
+        "label": "Team",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(traces_spanmetrics_calls_total, team)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "sort": 1
+      },
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(traces_spanmetrics_calls_total, deployment_environment)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "sort": 1
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Service Inventory",
+  "uid": "service-inventory",
+  "version": 1,
+  "weekStart": ""
+}

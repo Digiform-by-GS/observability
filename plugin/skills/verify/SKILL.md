@@ -94,6 +94,14 @@ over bare non-emptiness when re-running this on a service that was verified
 before: the plain matcher is satisfied by that earlier run's stored data, so it
 passes while the generator is dead.
 
+**One-look version of the log check.** If the platform has a **Service
+Inventory** dashboard, its "Sending traces" and "Sending logs" lists answer
+signal coverage without any query: a service in the first and missing from the
+second is emitting no OTLP logs at all. That is the most common half-onboarded
+state and the one nothing else reports, because traces and metrics arriving make
+every RED panel and the service graph look finished. Confirm it there before
+concluding the service is done.
+
 **Span-name check is a hard gate, not advice.** It has two distinct failure
 modes, and they look nothing alike:
 

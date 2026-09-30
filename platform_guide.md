@@ -225,6 +225,25 @@ developers while removing the ability to edit datasources or delete dashboards.
 Admin actions require the login in `.env`. To require a login for viewing too,
 set `GRAFANA_ANONYMOUS=false` and re-run `up -d`.
 
+Note this is Grafana-wide, not per-team: one shared Grafana reads every tenant,
+because Grafana OSS has no datasource permissions. Tenancy here buys quota and
+blast-radius isolation, not access control — any developer can see any team's
+data, so treat the **Team** filters as navigation rather than as a boundary.
+
+### Where to look first
+
+**Dashboards → Observability → Service Inventory.** Every service the platform
+has heard from, its owning team, and its request rate, error ratio and p95 in
+one table — filterable by Team and Environment.
+
+Its two coverage lists are the part worth knowing about. A service is fully
+onboarded only when it appears in *both* "Sending traces" and "Sending logs".
+Traces and metrics arriving while logs are absent is the usual half-onboarded
+state, and nothing else reports it: the RED panels fill in, the service graph
+draws, no error appears anywhere, and the gap is discovered during an incident
+when there are no logs to read. A service in the first list and missing from the
+second is in exactly that state.
+
 ### Host requirements
 
 - **CPU must support x86-64-v2.** Tempo and Pyroscope ship `GOAMD64=v2` binaries

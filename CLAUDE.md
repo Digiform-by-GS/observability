@@ -419,8 +419,13 @@ nothing. Probe bindability with a throwaway `net.createServer()` script rather t
 
 ## Grafana Quick Navigation
 
+- **Dashboards → Observability → Service Inventory**: the front door — every service the platform
+  has heard from, its owning **Team**, and its RED numbers in one table. Also the only place that
+  shows **signal coverage**: a service in "Sending traces" but absent from "Sending logs" emits no
+  OTLP logs at all, which every other dashboard renders as working. No Service filter, by design
 - **Dashboards → Observability → Observability Overview**: RED metrics + log stream, filtered by
-  the **Service** and **Environment** variables at the top. Blast Radius deliberately has no
+  the **Team**, **Service** and **Environment** variables at the top (Service is chained off Team,
+  so picking a team narrows the list). Blast Radius deliberately has no
   service filter — it answers "what else is affected", which a filter would defeat
 - **Dashboards → Observability → Blast Radius**: failing dependency edges, impacted services, and a
   `trace_id` textbox that pulls one request's logs from every service it touched
