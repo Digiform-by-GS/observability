@@ -1,4 +1,5 @@
 import express from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
@@ -47,9 +48,15 @@ const cfg: RunnerConfig = {
 // nothing to gain from re-reading it per request.
 const TEAMS = loadTeams(process.env.TEAMS_FILE);
 
-// Optional shared secret. A submitted job can carry a customer's repository
-// token, so on anything wider than a trusted LAN this should be set.
-const API_KEY = process.env.API_KEY ?? '';
+// Shared secret, REQUIRED. It used to default to empty, which disabled the
+// auth middleware entirely and logged `auth=OFF` once at startup - a guard
+// whose absence is announced in a line nobody reads twice.
+//
+// Not optional any more because this service spawns billed agent runs and
+// serves back the diff it generated for a private repository. Compose uses
+// `:?` on it for the same reason it does on GRAFANA_ADMIN_PASSWORD, and this
+// second check means a hand-run container cannot come up open either.
+const API_KEY = required('API_KEY');
 
 // Self-hosted GitLab is the norm for a lot of the target market, so the host
 // allow-list is configuration rather than something baked in.
@@ -114,9 +121,28 @@ const store = new JobStore();
 const app = express();
 app.use(express.json({ limit: '64kb' }));
 
+/** Constant-time compare, length-safe: timingSafeEqual throws on a mismatch. */
+function keyMatches(presented: string | undefined): boolean {
+  if (!presented) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(API_KEY);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 app.use((req, res, next) => {
-  if (!API_KEY || req.path === '/healthz' || req.method === 'GET') return next();
-  if (req.get('x-api-key') === API_KEY) return next();
+  // Everything under /api is gated. The form itself stays open because it is
+  // where the key gets entered, and /healthz stays open for container probes;
+  // neither reveals anything about a customer's repository.
+  //
+  // GET is NOT exempt any more. It used to be, so the form could poll without
+  // a key, and the job record was pruned to suit - gitToken, appUrl and
+  // deploymentConfigLocation are all deliberately kept off it for exactly that
+  // reason. But `GET /api/jobs` lists job ids and `GET /api/jobs/:id/patch`
+  // streams the generated diff, so listing and then fetching handed anyone who
+  // could reach the port the source of a private repo. randomUUID ids are no
+  // defence when the list endpoint gives them away.
+  if (req.path === '/healthz' || !req.path.startsWith('/api/')) return next();
+  if (keyMatches(req.get('x-api-key'))) return next();
   res.status(401).json({ error: 'unauthorized' });
 });
 
@@ -266,5 +292,7 @@ app.use(express.static(join(__dirname, 'public')));
 const port = Number(process.env.PORT ?? 8100);
 app.listen(port, () => {
   console.log(`[onboarding-agent] listening on :${port}`);
-  console.log(`[onboarding-agent] runner=${cfg.image} budget=$${cfg.budgetUsd} auth=${API_KEY ? 'on' : 'OFF'}`);
+  // No auth=on/OFF any more: the process cannot reach this line without a key,
+  // so the only state it could report is the one state it can be in.
+  console.log(`[onboarding-agent] runner=${cfg.image} budget=$${cfg.budgetUsd} /api requires x-api-key`);
 });

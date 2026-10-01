@@ -66,7 +66,7 @@ Required in `.env`:
 | `PUBLIC_OTLP_ENDPOINT` | baked into every generated `platform.json` — must be the address a **client** can reach, not a container name |
 | `PUBLIC_GRAFANA_URL` | same |
 | `PUBLIC_OTLP_BROWSER_ENDPOINT` | optional, but **browser/RUM onboarding does nothing without it**. The CORS-enabled receiver on `4319`, not the service receiver on `4318`, and it must be reachable from a user's browser. Absent, the agent is instructed to onboard the server side only — quietly, with no error |
-| `ONBOARD_API_KEY` | shared secret for `POST`. Optional on a trusted LAN, **required** anywhere else, because a submitted job can carry a customer's repo token |
+| `ONBOARD_API_KEY` | shared secret for **everything under `/api`**, GETs included. Not optional — compose and the process both refuse to start without it. Sent as `x-api-key`; the form has an Access key field and remembers it per browser |
 | `ONBOARD_BUDGET_USD` | per-job ceiling, default `2.00` |
 | `ONBOARD_GITLAB_HOSTS` | comma-separated self-hosted GitLab hostnames. `gitlab.com`/`github.com` need no configuration; other hosts must be listed here or the caller must send `provider` |
 
@@ -102,6 +102,17 @@ says so — the client can open it by hand rather than re-running the agent.
 - Secrets reach the container through a stdin env-file, never argv — argv is
   visible to `docker inspect` and to any process reading `/proc`.
 - `gitToken` is never written to the job record, to disk, or to logs.
+- **Everything under `/api` requires `x-api-key`, GETs included.** GETs used to
+  be exempt so the form could poll without a key, and the job record was pruned
+  to suit — `gitToken`, `appUrl` and `deploymentConfigLocation` are all kept off
+  it for that reason. But `GET /api/jobs` lists job ids and
+  `GET /api/jobs/:id/patch` streams the diff generated for a private repo, so
+  listing and then fetching handed the caller that source. `randomUUID` ids are
+  no defence when the list endpoint gives them away. The key is compared in
+  constant time, and `auth.test.ts` asserts each route against a real server
+  process — every assertion was confirmed to fail against the previous code.
+  Only `/healthz` and the page itself stay open; the page is where the key is
+  typed.
 - Accepting self-hosted hosts means accepting arbitrary ones, so `parseRepoUrl`
   refuses loopback, RFC1918, link-local and cloud-metadata addresses — and the
   platform's own hostnames, which are ordinary public IPs the private-range

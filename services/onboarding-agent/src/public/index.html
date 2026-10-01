@@ -121,6 +121,13 @@
 
   <form id="f">
     <label>
+      <span class="lbl">Access key</span>
+      <span class="hint">Ask the platform operator. Remembered in this browser only — it is never sent anywhere but this agent.</span>
+      <input name="apiKey" id="apiKey" type="password" autocomplete="off" placeholder="required" required>
+      <span class="warn" id="authWarn" hidden>That key was rejected. Nothing on this page will load until it is right.</span>
+    </label>
+
+    <label>
       <span class="lbl">Repository URL</span>
       <span class="hint">The clone URL. The agent reads the default branch unless you set one below.</span>
       <input name="repoUrl" placeholder="https://gitlab.com/acme/orders.git" required>
@@ -248,6 +255,36 @@
 <script>
 const f = document.getElementById('f');
 const jobsEl = document.getElementById('jobs');
+
+// --- access key -------------------------------------------------------------
+// /api is gated, including GETs, because GET /api/jobs lists job ids and
+// GET /api/jobs/:id/patch streams the diff generated for a private repo.
+// The page itself is served unauthenticated - it has to be, it is where the
+// key is typed - so nothing above this line can assume a working key.
+const keyEl = document.getElementById('apiKey');
+const authWarn = document.getElementById('authWarn');
+const KEY_STORE = 'onboarding-agent.apiKey';
+
+try { keyEl.value = localStorage.getItem(KEY_STORE) || ''; } catch { /* private mode */ }
+
+function apiKey() { return keyEl.value.trim(); }
+
+keyEl.addEventListener('change', () => {
+  try { localStorage.setItem(KEY_STORE, apiKey()); } catch { /* private mode */ }
+  authWarn.hidden = true;
+  loadTeams();
+  refresh();
+});
+
+/** fetch() against /api with the key attached, and 401 surfaced once. */
+async function api(path, init = {}) {
+  const r = await fetch(path, {
+    ...init,
+    headers: { ...(init.headers || {}), 'x-api-key': apiKey() },
+  });
+  authWarn.hidden = r.status !== 401;
+  return r;
+}
 const tokWrap = document.getElementById('tokWrap');
 f.mode.addEventListener('change', () => { tokWrap.hidden = f.mode.value !== 'pr'; });
 
@@ -263,7 +300,7 @@ const teamNote = document.getElementById('teamNote');
 async function loadTeams() {
   let list = { teams: [], catchAll: 'the shared pool', available: false };
   try {
-    list = await (await fetch('/api/teams')).json();
+    list = await (await api('/api/teams')).json();
   } catch { /* fall through to the unavailable case below */ }
 
   const opts = list.teams.map(t =>
@@ -317,7 +354,7 @@ f.addEventListener('submit', async (e) => {
   if (ingestWrap.hidden) delete body.browserIngest;
   f.go.disabled = true;
   try {
-    const r = await fetch('/api/jobs', {
+    const r = await api('/api/jobs', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -382,7 +419,7 @@ function render(jobs) {
       ${j.result?.summary ? `<p class="summary">${esc(j.result.summary)}</p>` : ''}
       ${j.error ? `<p class="err">${esc(j.error)}</p>` : ''}
       <p class="meta">
-        ${j.hasPatch ? `<a href="/api/jobs/${j.id}/patch">download patch</a> · ` : ''}
+        ${j.hasPatch ? `<a href="#" data-patch="${j.id}">download patch</a> · ` : ''}
         ${j.result?.pull_request ? `<a href="${esc(j.result.pull_request)}" target="_blank" rel="noopener">${j.provider === 'gitlab' ? 'merge request' : 'pull request'}</a> · ` : ''}
         ${typeof j.result?.cost_usd === 'number' ? `$${j.result.cost_usd.toFixed(2)} · ` : ''}
         ${esc(j.createdAt.replace('T',' ').slice(0,19))}
@@ -392,10 +429,24 @@ function render(jobs) {
 
 async function refresh() {
   try {
-    const r = await fetch('/api/jobs');
+    const r = await api('/api/jobs');
+    if (!r.ok) { render([]); return; }
     render(await r.json());
   } catch { /* transient; the next tick retries */ }
 }
+jobsEl.addEventListener('click', async (e) => {
+  const a = e.target.closest('[data-patch]');
+  if (!a) return;
+  e.preventDefault();
+  const r = await api(`/api/jobs/${a.dataset.patch}/patch`);
+  if (!r.ok) { alert(r.status === 401 ? 'access key rejected' : 'no patch for this job'); return; }
+  const url = URL.createObjectURL(await r.blob());
+  const dl = Object.assign(document.createElement('a'),
+                           { href: url, download: `onboarding-${a.dataset.patch}.patch` });
+  dl.click();
+  URL.revokeObjectURL(url);
+});
+
 refresh();
 setInterval(refresh, 3000);
 </script>

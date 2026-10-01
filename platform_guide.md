@@ -218,6 +218,14 @@ Secrets live in `/opt/observability/.env` (gitignored — this repository is
 public). Compose refuses to start if `GRAFANA_ADMIN_PASSWORD` is unset, so the
 platform cannot accidentally be deployed with a default password.
 
+`ONBOARD_API_KEY` now works the same way, and for a sharper reason: without it
+the onboarding agent served `/api` unauthenticated on `0.0.0.0:8100`, so anyone
+who could reach the port could spend the per-job run budget and download the
+patch the agent generated for someone else's private repository. Generate one
+with `openssl rand -hex 32`, put it in `.env`, and give it to the developers who
+use the form — they paste it into the Access key field, which the browser
+remembers. Rotating it is a `.env` edit plus `up -d onboarding-agent`.
+
 ### Grafana access
 
 Anonymous visitors get **Viewer**, which keeps dashboards zero-friction for
