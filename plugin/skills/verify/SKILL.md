@@ -102,6 +102,21 @@ state and the one nothing else reports, because traces and metrics arriving make
 every RED panel and the service graph look finished. Confirm it there before
 concluding the service is done.
 
+**If the service samples its traces, the span-metrics rows will look wrong — and
+they are not.** `traces_spanmetrics_*` is derived from the spans the backend
+actually stored, so it reports the sampled fraction, not the traffic. A service
+handling 800 req/s at a 1:7,500 sample shows about 0.1 req/s there. The platform
+does not sample, so the ratio is whatever the application set.
+
+Two consequences when verifying:
+
+- Use the service's own `http_server_request_duration_seconds_count` for volume.
+  It is an aggregated counter and is not sampled, so it is the only number that
+  matches reality.
+- Do not read an empty error panel as "no errors". At a heavy sample rate a rare
+  failure is statistically absent from span-metrics. Check the logs, or the
+  status-code mix on the SDK metrics, before concluding anything.
+
 **Span-name check is a hard gate, not advice.** It has two distinct failure
 modes, and they look nothing alike:
 

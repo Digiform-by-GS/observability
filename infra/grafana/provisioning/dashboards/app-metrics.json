@@ -12,14 +12,14 @@
       "type": "text",
       "title": "",
       "gridPos": {
-        "h": 5,
+        "h": 8,
         "w": 24,
         "x": 0,
         "y": 0
       },
       "options": {
         "mode": "markdown",
-        "content": "## Application metrics\nEmitted by the service itself, not derived from its spans. The RED panels on **Observability Overview** come from Tempo's metrics generator; these come from the SDK, and they survive the generator being down.\n\nTwo things live here that exist nowhere else: **payload sizes**, and **outbound dependency latency** keyed by the host actually called.\n\n*Routes are templates* (`/api/customers`, not `/api/customers/42`). If you see concrete ids here, the service is minting unbounded series and needs its router middleware fixed."
+        "content": "## Application metrics\nEmitted by the service itself, not derived from its spans. The RED panels on **Observability Overview** come from Tempo's metrics generator; these come from the SDK, and they survive the generator being down.\n\n**These are the real request volumes.** Span-based panels elsewhere show only what the application sampled. Measured on this platform: one service served 962,167 requests on a single route in 24h and produced 128 spans for it, so Overview read ~12 req/s against an actual ~826 req/s. The platform does not sample \u2014 the ratio is whatever the service set \u2014 and these counters are not sampled at all, so **expect the two dashboards to disagree by orders of magnitude. Neither is broken.** The same applies to errors: at a heavy sample rate a quiet error panel on span-metrics is not evidence that there were none.\n\nTwo things live here that exist nowhere else: **payload sizes**, and **outbound dependency latency** keyed by the host actually called.\n\n*Routes are templates* (`/api/customers`, not `/api/customers/42`). If you see concrete ids here, the service is minting unbounded series and needs its router middleware fixed."
       },
       "transparent": true
     },
@@ -35,7 +35,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 5
+        "y": 8
       },
       "fieldConfig": {
         "defaults": {
@@ -118,7 +118,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 5
+        "y": 8
       },
       "fieldConfig": {
         "defaults": {
@@ -201,7 +201,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 13
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -284,7 +284,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 13
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -373,7 +373,7 @@
         "h": 4,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 23
       },
       "options": {
         "mode": "markdown",
@@ -393,7 +393,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 24
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -476,7 +476,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 24
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -559,7 +559,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 24
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
