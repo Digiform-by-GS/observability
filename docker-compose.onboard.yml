@@ -37,7 +37,13 @@ services:
       JOB_TIMEOUT_MS: ${ONBOARD_TIMEOUT_MS:-1200000}
       # Submitted jobs can carry a customer's repo token. Set this on anything
       # broader than a trusted LAN.
-      API_KEY: ${ONBOARD_API_KEY:-}
+      # `:?` not `:-`. This defaulted to empty, which switched the auth
+      # middleware off entirely - so the agent published on 0.0.0.0:8100 would
+      # accept jobs (billed, $BUDGET_USD each) and serve back the diff it
+      # generated for a private repo, to anyone who could reach the port.
+      # Same reasoning as GRAFANA_ADMIN_PASSWORD: the deployment that forgets
+      # it should fail to start, not come up open.
+      API_KEY: ${ONBOARD_API_KEY:?set ONBOARD_API_KEY in .env - /api is unprotected without it}
       # Self-hosted GitLab hostnames, comma-separated. gitlab.com and github.com
       # are recognised without configuration; anything else must be listed here
       # or the caller must state "provider" on the request.

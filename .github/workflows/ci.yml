@@ -42,6 +42,22 @@ jobs:
           npm run -w @digiform-by-gs/nodejs-sample typecheck
           npm run -w @digiform-by-gs/microservices-demo typecheck
 
+      # The onboarding agent is NOT an npm workspace - `workspaces` is
+      # packages/* and examples/*, and it stays out because it ships as its own
+      # image with its own lockfile. The consequence was that nothing here ever
+      # ran its tests: the only CI touching it was the grep-based run-job.sh
+      # guards further down, so its suite could fail for months in silence.
+      #
+      # It is the component that clones stranger repositories, holds a
+      # customer's git token, mounts the Docker socket and gates /api on a
+      # shared secret. Those guards all have tests. Tests nothing executes are
+      # decoration.
+      - name: Test onboarding agent
+        working-directory: services/onboarding-agent
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+
   go:
     name: Go (observability-go + examples)
     runs-on: ubuntu-latest
