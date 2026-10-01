@@ -273,6 +273,18 @@ dropdown as ground truth.
 - Loki keeps `severity_text` as **structured metadata**, not a label — same as `trace_id`. Filter
   with `| severity_text="ERROR"` after the stream selector; a label matcher `{severity_text="ERROR"}`
   silently returns nothing.
+- **Span-based panels show what the client sampled. SDK metrics show everything.** Tempo's generator
+  derives `traces_spanmetrics_*` from spans it actually stored, so every RED panel built on them
+  reflects the *application's* sampler rather than its traffic. The platform does not sample — the
+  collector's traces pipeline is `memory_limiter, resource, batch`, and it forwarded 344,212 of
+  344,224 accepted spans — so any shortfall is client-side and invisible from here. Measured on the
+  platform: `costwise-backend` served **962,167** requests on `/api/company` in 24h and produced
+  **128** spans for it (7,494:1), so Overview read ~12 req/s against an actual ~826 req/s. The
+  `http_server_*` / `http_client_*` families behind **Application Metrics** are aggregated counters
+  and are *not* sampled, which makes them the only trustworthy volume and error-rate numbers once a
+  client samples — and the reason that dashboard exists. Expect the two to disagree by orders of
+  magnitude; neither is broken. A corollary worth remembering during an incident: at 1:7,500 a rare
+  error is statistically absent from span-metrics, so "no errors" there is not evidence of none.
 - Pyroscope's Node SDK emits profile type `memory:inuse_space:bytes:inuse_space:bytes`. The Go-style
   `memory:inuse_space:bytes:space:bytes` returns an empty flame graph, not an error.
 - **Series growth is dominated by span-metrics histograms, not by receivers.** Adding Redis +
