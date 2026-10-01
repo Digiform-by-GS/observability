@@ -631,7 +631,129 @@ inventory_panels = [
         sort_by="Errors/sec"),
 ]
 
+# --------------------------------------------------------- app metrics ---
+# The SDK's own HTTP metrics. Fifteen of these families were arriving and no
+# panel anywhere read them: every RED number on Overview, Blast Radius and the
+# inventory comes from Tempo's span-metrics instead.
+#
+# They are not redundant with each other. Span-metrics are derived by the
+# platform from spans it stored, so they stop when the generator stops and they
+# carry only the dimensions tempo-config.yaml declares. These come straight
+# from the instrumented process, and they carry things a span-metric does not:
+# payload sizes, and `server_address` on the client side - which is the only
+# per-dependency latency the platform has.
+#
+# MIND THE LABEL. These say `service_name`; span-metrics say `service`. Both
+# are correct in their own system, and a query that mixes them silently returns
+# one unlabelled series. They also land in the TEAM's Mimir tenant rather than
+# the catch-all, because metrics are routed and traces are not - the Grafana
+# datasource federates, so a panel does not have to care, but a curl does.
+APP_TEAM_VAR = query_var(
+    "team", "Team",
+    "label_values(http_server_request_duration_seconds_count, team)")
+APP_SERVICE_VAR = query_var(
+    "service", "Service",
+    'label_values(http_server_request_duration_seconds_count{team=~"$team"}, service_name)')
+APP_ENV_VAR = query_var(
+    "environment", "Environment",
+    "label_values(http_server_request_duration_seconds_count, deployment_environment)")
+
+_APP = 'service_name=~"$service", team=~"$team", deployment_environment=~"$environment"'
+
+app_panels = [
+    text(
+        "",
+        "## Application metrics\n"
+        "Emitted by the service itself, not derived from its spans. The RED panels on "
+        "**Observability Overview** come from Tempo's metrics generator; these come from the SDK, "
+        "and they survive the generator being down.\n\n"
+        "Two things live here that exist nowhere else: **payload sizes**, and **outbound dependency "
+        "latency** keyed by the host actually called.\n\n"
+        "*Routes are templates* (`/api/customers`, not `/api/customers/42`). If you see concrete ids "
+        "here, the service is minting unbounded series and needs its router middleware fixed.",
+        0, 0, 24, 5),
+
+    # topk, because this platform already has 75 distinct routes for one
+    # service. All of them on one chart is a solid block of colour.
+    timeseries(
+        "Request rate — top 10 routes",
+        [target("topk(10, sum by (http_route) (rate(http_server_request_duration_seconds_count{%s}[$__rate_interval])))" % _APP,
+                "{{http_route}}")],
+        0, 5, 12, 8, unit="reqps",
+        desc="Server-side, by route template."),
+
+    timeseries(
+        "p95 latency — top 10 routes",
+        [target("topk(10, histogram_quantile(0.95, sum by (le, http_route) "
+                "(rate(http_server_request_duration_seconds_bucket{%s}[$__rate_interval]))))" % _APP,
+                "{{http_route}}")],
+        12, 5, 12, 8, unit="s",
+        desc="A route with no traffic in the window yields NaN and simply leaves a gap - that is "
+             "absence of data, not a latency of zero."),
+
+    # Status CODE, not an error rate. A 5xx rate query returns an EMPTY vector
+    # when nothing is failing, so that panel reads "No data" on a healthy
+    # service - indistinguishable from the metric having gone away. Verified:
+    # the 5xx query returned 0 series against this platform. The mix always has
+    # data, and shows the 4xx/2xx balance shifting, which a 5xx line cannot.
+    timeseries(
+        "Responses by status code",
+        [target("sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{%s}[$__rate_interval]))" % _APP,
+                "{{http_response_status_code}}")],
+        0, 13, 12, 7, unit="reqps", stack=True,
+        desc="Stacked, and deliberately not an error RATE: with nothing failing, a 5xx query "
+             "returns an empty vector and the panel reads 'No data', which looks identical to the "
+             "metric having disappeared."),
+
+    timeseries(
+        "Payload size p95 — request and response",
+        [target("histogram_quantile(0.95, sum by (le) (rate(http_server_request_body_size_bytes_bucket{%s}[$__rate_interval])))" % _APP,
+                "request", ref="A"),
+         target("histogram_quantile(0.95, sum by (le) (rate(http_server_response_body_size_bytes_bucket{%s}[$__rate_interval])))" % _APP,
+                "response", ref="B")],
+        12, 13, 12, 7, unit="bytes",
+        desc="Span-metrics cannot answer this. A latency rise that tracks response size is a "
+             "payload problem, not a slow handler."),
+
+    text(
+        "",
+        "## Outbound dependencies\n"
+        "What this service calls, keyed by `server_address` — the host actually contacted. The only "
+        "per-dependency timing the platform has: the service graph pairs spans *within* a trace, so "
+        "it shows services that are instrumented, never a third party that is not.\n\n"
+        "Requires `otelhttp.NewTransport` on the client. An SDK that builds its own transport "
+        "(`gocloak`, `resty`) reports nothing here and severs the trace too.",
+        0, 20, 24, 4),
+
+    timeseries(
+        "Outbound request rate by dependency",
+        [target("sum by (server_address) (rate(http_client_request_duration_seconds_count{%s}[$__rate_interval]))" % _APP,
+                "{{server_address}}")],
+        0, 24, 8, 8, unit="reqps"),
+
+    timeseries(
+        "Outbound p95 by dependency",
+        [target("histogram_quantile(0.95, sum by (le, server_address) "
+                "(rate(http_client_request_duration_seconds_bucket{%s}[$__rate_interval])))" % _APP,
+                "{{server_address}}")],
+        8, 24, 8, 8, unit="s",
+        desc="Time your service spent waiting on someone else. Latency that appears here and not "
+             "in the server panels above is not your code."),
+
+    timeseries(
+        "Outbound responses by status code",
+        [target("sum by (server_address, http_response_status_code) "
+                "(rate(http_client_request_duration_seconds_count{%s}[$__rate_interval]))" % _APP,
+                "{{server_address}} {{http_response_status_code}}")],
+        16, 24, 8, 8, unit="reqps", stack=True),
+]
+
 DASHBOARDS = [
+    ("app-metrics.json", dashboard(
+        "app-metrics", "Application Metrics",
+        "HTTP metrics emitted by the services themselves - routes, payload sizes, and outbound dependency latency.",
+        ["observability", "application"], app_panels,
+        [APP_TEAM_VAR, APP_SERVICE_VAR, APP_ENV_VAR], time_from="now-1h")),
     ("service-inventory.json", dashboard(
         "service-inventory", "Service Inventory",
         "Every service the platform has heard from, its owner, its health, and whether it is "

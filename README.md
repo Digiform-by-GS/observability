@@ -109,6 +109,7 @@ still experimental.
 |---|---|
 | **Service Inventory** | What services exist, who owns them, how they are doing — and whether each one is *fully* onboarded. A service sending traces but no logs shows up here and nowhere else |
 | **Observability Overview** | RED metrics and logs, filtered by Team → Service → Environment |
+| **Application Metrics** | What the service itself reports: per-route rate and latency, payload sizes, and outbound dependency latency by host — the last two exist nowhere else |
 | **Blast Radius** | During an incident: failing dependency edges, impacted services, and one request's logs across every service it touched |
 | **Platform Health** | Whether the observability stack itself is working — the one question the others structurally cannot answer |
 | **Browser (RUM)** | Core Web Vitals at p75 by route, plus JS errors |

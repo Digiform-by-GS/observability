@@ -427,6 +427,11 @@ nothing. Probe bindability with a throwaway `net.createServer()` script rather t
   the **Team**, **Service** and **Environment** variables at the top (Service is chained off Team,
   so picking a team narrows the list). Blast Radius deliberately has no
   service filter — it answers "what else is affected", which a filter would defeat
+- **Dashboards → Observability → Application Metrics**: the SDK's own HTTP metrics, which no panel
+  read for a long time — every RED number elsewhere is derived by Tempo instead. Two things live
+  only here: **payload sizes**, and **outbound dependency latency** by `server_address`, which the
+  service graph structurally cannot show because it only pairs spans *within* a trace and a third
+  party is not instrumented. Keys on `service_name`, not `service`
 - **Dashboards → Observability → Blast Radius**: failing dependency edges, impacted services, and a
   `trace_id` textbox that pulls one request's logs from every service it touched
 - **Dashboards → Observability → Platform Health**: the stack's own health — component up/down,
