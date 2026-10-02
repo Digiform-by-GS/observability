@@ -47,7 +47,14 @@ receivers:
           allowed_origins:
             - http://localhost:*
             - http://127.0.0.1:*
-            # - http://<app-host>:<port>     # add real app origins here
+            # Real app origins. SCHEME + HOST only - an Origin header never
+            # carries a path or a trailing slash, so the value here is
+            # "https://costwise.digiform.co.id" and never the page URL
+            # ".../login" that someone will paste. A path makes the entry match
+            # nothing, and the symptom is an empty RUM dashboard rather than an
+            # error: the preflight fails, so the export never leaves the tab.
+            - https://costwise.digiform.co.id       # costwise-frontend, main
+            - https://dev-costwise.digiform.co.id   # costwise-frontend, development
           # traceparent/tracestate are what let a browser span parent the server
           # span it triggered. Omitting them does not merely lose correlation:
           # the preflight fails, and with it the export.
