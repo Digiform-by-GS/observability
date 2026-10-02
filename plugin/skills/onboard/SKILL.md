@@ -399,6 +399,73 @@ and say plainly what it buys and what it costs:
 Say so even when you change nothing: "logs are not wired, here is why, here is
 the fix" is a useful result. Silence reads as "logging works".
 
+**The access logger is usually not the only source.** Count the rest before you
+decide this step is done:
+
+```
+grep -rcE '\blog\.(Print|Println|Printf|Fatal)' --include='*.go' .     # Go stdlib
+grep -rcE '\bconsole\.(log|warn|error)' --include='*.ts' --include='*.js' src
+```
+
+A real service had **217 Go `log.*` call sites** alongside its access logger, all
+going to stdout, none reaching the platform. Fixing them one at a time is not
+realistic and is not necessary — in Go, one line covers all of them:
+
+```go
+obs, err := observability.New(ctx, observability.WithServiceName("svc"))
+// ...
+slog.SetDefault(obs.Logger())   // after New, before anything logs
+```
+
+Since Go 1.21 `slog.SetDefault` also redirects the **stdlib `log` package**
+through the handler, so every existing `log.Printf` starts exporting with no edit
+to the call site.
+
+Two things to tell the user honestly, because both are real:
+
+- **It changes the stdout format of those lines** — the wrapper's handler mirrors
+  to stdout as JSON, so plain `log.Println` output becomes a JSON record. If
+  anything greps `kubectl logs` or parses those lines, that is a behaviour
+  change, and the same reasoning that says "do not rewrite the access logger
+  yourself" applies here.
+- **They arrive without a `trace_id`.** A context-free call has no span to
+  attach to, and that is correct rather than a defect: most such calls run at
+  startup, in a scheduler or in a CLI path, outside any request. The lines that
+  carry `trace_id` are the ones the access-log replacement emits with
+  `InfoContext(r.Context(), ...)`. Say which is which, so nobody concludes
+  correlation is broken after seeing a startup log with no trace.
+
+Node has no equivalent single switch — the wrapper's pino logger has to be
+injected where `console.*` is used today, so there it really is per-call-site.
+
+## Step 3c — If it serves a browser-facing API, allow `traceparent` now
+
+Only when the service configures CORS (a browser calls it from another origin).
+Grep for the allow-list:
+
+```
+grep -rnE 'AllowedHeaders|Access-Control-Allow-Headers|allowedHeaders' --include='*.go' --include='*.ts' --include='*.js' .
+```
+
+If `traceparent` and `tracestate` are absent, add them.
+
+**Unlike the logging change, do this yourself rather than only recommending it.**
+Widening an allow-list permits a header; it does not require one, change any
+response, or affect a single existing request. There is no behaviour to regress.
+
+It matters because it is the cheap half of a trap whose expensive half breaks
+applications. When this API's frontend is later onboarded and sets `propagateTo`,
+the browser adds `traceparent`, which makes the request **preflighted** — and if
+this service does not allow the header, the preflight fails and **the real
+request never happens**. The app breaks, not just the tracing.
+
+Landing it here means the frontend change is safe whenever it ships, by whoever
+ships it, with no cross-team sequencing to coordinate. Leaving it means a future
+onboarding either blocks on another team or breaks production.
+
+Say in the PR body that you added it and that it has no effect until a browser
+starts propagating.
+
 ## Step 4 — Verify
 
 After the edits, run the **verify** skill (same plugin). Do not declare

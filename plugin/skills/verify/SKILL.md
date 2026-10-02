@@ -75,7 +75,7 @@ operator's side)? Report which signal failed and where it stopped.
 | Logs correlated | ``{service_name="<svc>"} | trace_id=~`.+` `` | Request-path logs carry a trace_id (app logs emitted outside requests legitimately have none) |
 | Metrics flowing | `traces_spanmetrics_calls_total{service="<svc>"}` | Non-empty |
 | **Span names bounded** | `count(sum by (span_name) (traces_spanmetrics_calls_total{service="<svc>"}))` and list the names | Names are route **templates** (`GET /orders/{id}`). FAIL if names contain concrete ids/numbers (`GET /orders/42`) — see below |
-| Runtime metrics | Node: `nodejs_eventloop_utilization` / Go: `process_runtime_go_goroutines` filtered on `service_name="<svc>"` | Present (confirms SDK metrics beyond spans) |
+| Runtime metrics | **Discover the name, do not predict it** — see below | Present (confirms SDK metrics beyond spans) |
 | **Tenant placement** | `traces_spanmetrics_calls_total{service="<svc>", __tenant_id__="<team>"}` and the same query against `__tenant_id__="unattributed"` | Non-empty for the team, **empty** for the catch-all. Skip if the platform is single-tenant |
 
 **If the two `traces_spanmetrics_*` rows come back empty, check whether it is
@@ -101,6 +101,31 @@ second is emitting no OTLP logs at all. That is the most common half-onboarded
 state and the one nothing else reports, because traces and metrics arriving make
 every RED panel and the service graph look finished. Confirm it there before
 concluding the service is done.
+
+**Runtime metric names must be discovered, not guessed.** This row used to name
+`process_runtime_go_goroutines` and `nodejs_eventloop_utilization`. The Go one
+**does not exist** — current contrib emits OTel semantic-convention names, so on
+a live platform a Go service reports:
+
+```
+go_goroutine_count           go_memory_used_bytes
+go_memory_allocated_bytes_total   go_memory_allocations_total
+go_memory_gc_goal_bytes      go_config_gogc_percent      go_processor_limit
+```
+
+Querying the old name returns empty, which reads as "runtime metrics are not
+working" for a service where they are working perfectly. List what is actually
+there instead:
+
+```
+/api/v1/label/__name__/values        then filter for go_ / nodejs_ / process_
+```
+
+and confirm the service reports some of them with
+`group by (service_name) (<name>)`. The same caution applies to the Node names:
+treat any metric name written in a document as a hint, and the label-values
+endpoint as the truth. Instrumentation libraries rename metrics across versions
+far more often than they remove them.
 
 **If the service samples its traces, the span-metrics rows will look wrong — and
 they are not.** `traces_spanmetrics_*` is derived from the spans the backend
