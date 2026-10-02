@@ -137,6 +137,10 @@ services:
   # allowed_origins remain load-bearing — see config.platform.yaml.
   cloudflared:
     image: cloudflare/cloudflared:2026.9.3
+    # Every other service on this host sets container_name, so `docker exec
+    # <name>` and the operator runbooks work without the compose project
+    # prefix. Without it this one is observability-baseline-cloudflared-1.
+    container_name: cloudflared
     restart: unless-stopped
     mem_limit: 128m
     networks: [obs]
