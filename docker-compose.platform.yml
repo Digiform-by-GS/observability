@@ -22,6 +22,9 @@
 #   4. Grafana stops handing out anonymous Admin. See the grafana block.
 #
 #   5. Everything restarts on boot — this is a service now, not a laptop stack.
+#
+#   6. cloudflared publishes the browser/RUM receiver at otel.digiform.co.id
+#      without opening an inbound port. See the cloudflared block.
 
 services:
   # --- demo fixtures: present but not started by default ---------------------
@@ -115,6 +118,41 @@ services:
       tempo:
         condition: service_started
       mimir:
+        condition: service_started
+
+  # --- public RUM ingest ------------------------------------------------------
+  # Browsers cannot reach the collector directly. The VM sits behind NAT
+  # (20.20.1.88 internally, 118.99.99.172 to the internet) with :80 and :443
+  # filtered, and an HTTPS page cannot POST to a plain-HTTP endpoint anyway —
+  # mixed content blocks the request before CORS is ever evaluated.
+  #
+  # cloudflared dials OUT to Cloudflare, so this needs no inbound port, no NAT
+  # rule, no public IP and no certificate to renew. Cloudflare terminates TLS
+  # for otel.digiform.co.id and forwards to the collector over the obs network.
+  # The ingress rules live in Cloudflare (the tunnel is config_src=cloudflare),
+  # not here: otel.digiform.co.id -> http://otel-collector:4319, everything
+  # else 404. Changing them is a dashboard/API edit, not a redeploy.
+  #
+  # Still cross-origin (otel.* vs costwise.*), so the collector's CORS
+  # allowed_origins remain load-bearing — see config.platform.yaml.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    restart: unless-stopped
+    mem_limit: 128m
+    networks: [obs]
+    # No ports. The connection is outbound-only, which is the entire point.
+    #
+    # The token goes in the ENVIRONMENT, not in `command`. cloudflared reads
+    # TUNNEL_TOKEN natively, and a token passed as an argument is visible in
+    # `ps aux` to every user on the host, in `docker inspect`, and in the
+    # output of `docker compose config` - which is the command an operator
+    # runs to debug this file. Same `:?` guard either way, so a missing token
+    # still fails the run instead of starting a connector with no credential.
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env - copy it from Cloudflare Zero Trust > Networks > Tunnels > observability > Add a connector}
+    depends_on:
+      otel-collector:
         condition: service_started
 
   grafana:
