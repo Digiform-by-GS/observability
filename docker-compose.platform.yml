@@ -141,7 +141,16 @@ services:
     mem_limit: 128m
     networks: [obs]
     # No ports. The connection is outbound-only, which is the entire point.
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env - copy it from Cloudflare Zero Trust > Networks > Tunnels > observability}
+    #
+    # The token goes in the ENVIRONMENT, not in `command`. cloudflared reads
+    # TUNNEL_TOKEN natively, and a token passed as an argument is visible in
+    # `ps aux` to every user on the host, in `docker inspect`, and in the
+    # output of `docker compose config` - which is the command an operator
+    # runs to debug this file. Same `:?` guard either way, so a missing token
+    # still fails the run instead of starting a connector with no credential.
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env - copy it from Cloudflare Zero Trust > Networks > Tunnels > observability > Add a connector}
     depends_on:
       otel-collector:
         condition: service_started
