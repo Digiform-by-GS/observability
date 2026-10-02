@@ -41,8 +41,21 @@ initBrowserObservability({
   serviceName: 'shop-browser',
   endpoint: import.meta.env.VITE_OTLP_BROWSER_ENDPOINT,
   environment: import.meta.env.MODE,
+
+  // Only on a multi-tenant platform — but then it is not optional. See below.
+  resourceAttributes: { team: import.meta.env.VITE_OTEL_TEAM },
 });
 ```
+
+**If the platform is multi-tenant, `team` belongs in `resourceAttributes`.** The
+server-side wrapper picks `team` up from the env-var contract; a browser bundle
+has no environment, so nothing supplies it unless you do. It is easy to miss
+because the failure is not an error: telemetry without a recognised `team` is
+**not rejected**, it lands in the shared catch-all tenant and looks completely
+correct on every dashboard, because the Grafana datasources read across tenants.
+The only way to see it is to query `__tenant_id__`, which the **verify** skill
+does. Check `.observability/platform.json` for the team the server side uses and
+pass the same value.
 
 Call it once, as early as the app has a client entry point. For Next.js that is
 `pages/_app` on the pages router, or a `'use client'` component mounted from the
