@@ -21,7 +21,8 @@
         "mode": "markdown",
         "content": "## Platform health\nIs the observability stack itself working? Every other dashboard is built from data that arrives through this pipeline, so when it breaks they go **quiet, not red**.\n\n- **Components down** \u2014 whichever signal that backend stores is being dropped right now.\n- **Export failing / queue filling** \u2014 the collector cannot deliver. Nothing downstream can report this, because nothing downstream is receiving anything.\n- **Active series near the cap** \u2014 Mimir rejects metric writes for **every** service when it fills, not just the one that grew. Find the offender with `topk(10, count by (service) (count by (service, span_name) (traces_spanmetrics_calls_total)))`."
       },
-      "transparent": true
+      "transparent": true,
+      "id": 1
     },
     {
       "type": "stat",
@@ -103,7 +104,8 @@
           "legendFormat": "{{service_instance_id}}",
           "instant": true
         }
-      ]
+      ],
+      "id": 2
     },
     {
       "type": "timeseries",
@@ -194,7 +196,8 @@
           "range": true,
           "legendFormat": "active series"
         }
-      ]
+      ],
+      "id": 3
     },
     {
       "type": "timeseries",
@@ -281,7 +284,8 @@
           "range": true,
           "legendFormat": "{{exporter}}"
         }
-      ]
+      ],
+      "id": 4
     },
     {
       "type": "timeseries",
@@ -364,7 +368,8 @@
           "range": true,
           "legendFormat": "{{exporter}} / {{data_type}}"
         }
-      ]
+      ],
+      "id": 5
     },
     {
       "type": "timeseries",
@@ -447,7 +452,8 @@
           "range": true,
           "legendFormat": "{{user}}{{tenant}} - {{reason}}"
         }
-      ]
+      ],
+      "id": 6
     },
     {
       "type": "timeseries",
@@ -541,7 +547,8 @@
           "range": true,
           "legendFormat": "samples/s (Mimir)"
         }
-      ]
+      ],
+      "id": 7
     },
     {
       "type": "timeseries",
@@ -624,7 +631,8 @@
           "range": true,
           "legendFormat": "{{service_instance_id}}"
         }
-      ]
+      ],
+      "id": 8
     },
     {
       "type": "text",
@@ -639,7 +647,8 @@
         "mode": "markdown",
         "content": "One team's cardinality can no longer reject another team's writes. These panels say **whose** quota is at risk, while the damage is still confined to them. Tenants and their caps live in `infra/tenants.yaml`."
       },
-      "transparent": true
+      "transparent": true,
+      "id": 9
     },
     {
       "type": "timeseries",
@@ -730,7 +739,8 @@
           "range": true,
           "legendFormat": "{{user}}"
         }
-      ]
+      ],
+      "id": 10
     },
     {
       "type": "timeseries",
@@ -813,7 +823,8 @@
           "range": true,
           "legendFormat": "{{user}}"
         }
-      ]
+      ],
+      "id": 11
     },
     {
       "type": "timeseries",
@@ -896,7 +907,8 @@
           "range": true,
           "legendFormat": "{{exporter}}"
         }
-      ]
+      ],
+      "id": 12
     },
     {
       "type": "timeseries",
@@ -979,7 +991,8 @@
           "range": true,
           "legendFormat": "unattributed"
         }
-      ]
+      ],
+      "id": 13
     }
   ],
   "refresh": "30s",

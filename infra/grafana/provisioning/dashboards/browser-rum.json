@@ -21,7 +21,8 @@
         "mode": "markdown",
         "content": "## Browser (RUM)\nWhat the **user** experienced, as opposed to what the server did.\n\n- Vitals are reported **once per page view**, not continuously \u2014 expect sparse lines on a low-traffic app. Shown at **p75**, the percentile Google defines its thresholds against.\n- Broken down by **route template**, never URL. If you see a concrete path here (`/orders/42`), that app is minting one metric series per URL and needs fixing before it fills the shared metric store.\n- Dashed line marks Google's *good* threshold: LCP 2.5s, INP 200ms, CLS 0.1.\n- **No data?** The browser half fails silently \u2014 a blocked CORS preflight, an ad blocker, or an app posting to the service OTLP port instead of the browser one all look identical from here: nothing arrives."
       },
-      "transparent": true
+      "transparent": true,
+      "id": 1
     },
     {
       "type": "timeseries",
@@ -108,7 +109,8 @@
           "range": true,
           "legendFormat": "{{route}}"
         }
-      ]
+      ],
+      "id": 2
     },
     {
       "type": "timeseries",
@@ -195,7 +197,8 @@
           "range": true,
           "legendFormat": "{{route}}"
         }
-      ]
+      ],
+      "id": 3
     },
     {
       "type": "timeseries",
@@ -282,7 +285,8 @@
           "range": true,
           "legendFormat": "{{route}}"
         }
-      ]
+      ],
+      "id": 4
     },
     {
       "type": "timeseries",
@@ -365,7 +369,8 @@
           "range": true,
           "legendFormat": "{{rating}}"
         }
-      ]
+      ],
+      "id": 5
     },
     {
       "type": "timeseries",
@@ -448,7 +453,8 @@
           "range": true,
           "legendFormat": "{{span_name}}"
         }
-      ]
+      ],
+      "id": 6
     },
     {
       "type": "timeseries",
@@ -531,7 +537,8 @@
           "range": true,
           "legendFormat": "errors"
         }
-      ]
+      ],
+      "id": 7
     },
     {
       "type": "logs",
@@ -568,7 +575,8 @@
           "refId": "A",
           "range": true
         }
-      ]
+      ],
+      "id": 8
     }
   ],
   "refresh": "30s",

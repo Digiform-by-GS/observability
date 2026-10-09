@@ -21,7 +21,8 @@
         "mode": "markdown",
         "content": "## Service inventory\nEvery service the platform has heard from, who owns it, and how it is doing right now.\n\n**The two coverage lists below are the point of this page.** A service is only fully onboarded when it appears in *both*. Traces and metrics arriving while logs are absent is the common half-onboarded state, and it is invisible everywhere else: the RED panels fill in, the service graph draws, nothing errors, and the gap surfaces months later when someone opens an incident and finds no logs to read. A service in the traces list but not in the logs list is exactly that case.\n\n*An empty row is not a bug.* A service is listed only while it is sending; one that stopped drops off after the dashboard time range, which is itself the signal."
       },
-      "transparent": true
+      "transparent": true,
+      "id": 1
     },
     {
       "type": "table",
@@ -174,7 +175,8 @@
           "instant": true,
           "format": "table"
         }
-      ]
+      ],
+      "id": 2
     },
     {
       "type": "table",
@@ -271,7 +273,8 @@
           "instant": true,
           "format": "table"
         }
-      ]
+      ],
+      "id": 3
     },
     {
       "type": "table",
@@ -354,7 +357,8 @@
           "instant": true,
           "format": "table"
         }
-      ]
+      ],
+      "id": 4
     },
     {
       "type": "table",
@@ -451,7 +455,8 @@
           "instant": true,
           "format": "table"
         }
-      ]
+      ],
+      "id": 5
     }
   ],
   "refresh": "30s",

@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Observability Platform</title>
+<style>
+  :root {
+    --bg:#ffffff; --fg:#1a1a1a; --muted:#666; --line:#e2e2e2;
+    --accent:#2563eb; --ok:#15803d; --bad:#b91c1c; --card:#fafafa;
+    --warn:#b45309; --warnbg:#fffbeb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#131313; --fg:#ececec; --muted:#9a9a9a; --line:#2e2e2e;
+            --accent:#60a5fa; --ok:#4ade80; --bad:#f87171; --card:#1c1c1c;
+            --warn:#fbbf24; --warnbg:#2a2213; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:2rem 1rem; background:var(--bg); color:var(--fg);
+         font:15px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif; }
+  main { max-width:1180px; margin:0 auto; }
+  h1 { font-size:1.5rem; margin:0 0 .25rem; }
+  p.sub { color:var(--muted); margin:0 0 1.25rem; }
+  .bar { display:flex; gap:.75rem; flex-wrap:wrap; align-items:end; margin-bottom:1rem; }
+  label { display:grid; gap:.3rem; font-size:.85rem; color:var(--muted); }
+  select, button { font:inherit; padding:.4rem .6rem; border:1px solid var(--line);
+                   border-radius:7px; background:var(--card); color:var(--fg); }
+  button { cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th, td { text-align:left; padding:.55rem .6rem; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercase;
+       letter-spacing:.03em; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tr.svc { cursor:pointer; }
+  tr.svc:hover td { background:var(--card); }
+  tr.svc[aria-selected="true"] td { background:var(--card); box-shadow:inset 3px 0 0 var(--accent); }
+  .pill { display:inline-block; padding:.08rem .45rem; border-radius:999px; font-size:.75rem;
+          border:1px solid var(--line); }
+  .yes { color:var(--ok); border-color:currentColor; }
+  .no  { color:var(--bad); border-color:currentColor; }
+  .note { background:var(--warnbg); border:1px solid var(--warn); color:var(--warn);
+          padding:.6rem .8rem; border-radius:8px; margin:0 0 1rem; font-size:.85rem; }
+  .panels { display:grid; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); gap:1rem;
+            margin-top:1rem; }
+  .panel { border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--card); }
+  .panel h3 { margin:0; padding:.5rem .75rem; font-size:.85rem; border-bottom:1px solid var(--line); }
+  .panel iframe { width:100%; height:240px; border:0; display:block; background:transparent; }
+  .panel p { margin:0; padding:.4rem .75rem; font-size:.78rem; color:var(--muted);
+             border-top:1px solid var(--line); }
+  .links { display:flex; gap:.6rem; flex-wrap:wrap; margin-top:1rem; font-size:.85rem; }
+  .links a { color:var(--accent); }
+  .empty { color:var(--muted); padding:2rem 0; }
+  h2 { font-size:1.1rem; margin:1.75rem 0 .5rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Observability Platform</h1>
+  <p class="sub">Every service the platform has heard from, and whether it is actually sending
+     all three signals.</p>
+
+  <div id="degraded"></div>
+
+  <div class="bar">
+    <label>Team
+      <select id="team"><option value="">All teams</option></select>
+    </label>
+    <label>Environment
+      <select id="env"><option value="">All environments</option></select>
+    </label>
+    <label>Window
+      <select id="range">
+        <option value="900">Last 15 minutes</option>
+        <option value="3600" selected>Last hour</option>
+        <option value="21600">Last 6 hours</option>
+        <option value="86400">Last 24 hours</option>
+      </select>
+    </label>
+    <button id="refresh" type="button">Refresh</button>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th>Service</th><th>Team</th><th>Environment</th>
+      <th class="num">req/s</th><th class="num">errors</th><th class="num">p95</th>
+      <th>Traces</th><th>Logs</th>
+    </tr></thead>
+    <tbody id="rows"><tr><td colspan="8" class="empty">Loading...</td></tr></tbody>
+  </table>
+
+  <div id="detail"></div>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+
+// Grafana renders its own light/dark, so the viewer's preference is passed into
+// the embed URL. Without it an embedded panel is a white rectangle in a dark page.
+const theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+
+let catalog = { services: [], degraded: [], rangeSeconds: 3600 };
+let selected = null;
+
+const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ESCAPES[c]);
+
+const fmtRate = (v) => v === null ? '—' : v >= 10 ? v.toFixed(0) : v.toFixed(2);
+const fmtPct = (v) => v === null ? '—' : (v * 100).toFixed(v < 0.01 ? 2 : 1) + '%';
+const fmtMs = (v) => v === null ? '—' : v < 1 ? (v * 1000).toFixed(0) + ' ms' : v.toFixed(2) + ' s';
+const pill = (on) => on ? '<span class="pill yes">yes</span>' : '<span class="pill no">no</span>';
+
+function fillSelect(el, values) {
+  const keep = el.value;
+  el.length = 1;
+  for (const v of values) el.add(new Option(v, v));
+  if (values.includes(keep)) el.value = keep;
+}
+
+function visible() {
+  const t = $('team').value;
+  const e = $('env').value;
+  return catalog.services.filter((s) => (!t || s.team === t) && (!e || s.environment === e));
+}
+
+function render() {
+  const rows = visible();
+  fillSelect($('team'), [...new Set(catalog.services.map((s) => s.team))].sort());
+  fillSelect($('env'), [...new Set(catalog.services.map((s) => s.environment))].sort());
+
+  $('degraded').innerHTML = catalog.degraded.length
+    ? '<p class="note"><strong>Partial data.</strong> ' +
+      catalog.degraded.map(esc).join(' · ') + '</p>'
+    : '';
+
+  if (!rows.length) {
+    $('rows').innerHTML = '<tr><td colspan="8" class="empty">' +
+      (catalog.degraded.length
+        ? 'No services to show — see the notice above.'
+        : 'No services have reported in this window.') + '</td></tr>';
+    return;
+  }
+
+  $('rows').innerHTML = rows.map((s, i) => {
+    const id = s.team + '/' + s.service + '/' + s.environment;
+    const sel = id === selected ? ' aria-selected="true"' : '';
+    return '<tr class="svc" data-i="' + i + '"' + sel + '>' +
+      '<td><strong>' + esc(s.service) + '</strong></td>' +
+      '<td>' + esc(s.team) + '</td>' +
+      '<td>' + esc(s.environment) + '</td>' +
+      '<td class="num">' + fmtRate(s.requestRate) + '</td>' +
+      '<td class="num">' + fmtPct(s.errorRatio) + '</td>' +
+      '<td class="num">' + fmtMs(s.latencyP95) + '</td>' +
+      '<td>' + pill(s.sendingTraces) + '</td>' +
+      '<td>' + pill(s.sendingLogs) + '</td>' +
+      '</tr>';
+  }).join('');
+
+  for (const tr of document.querySelectorAll('tr.svc')) {
+    tr.addEventListener('click', () => select(rows[Number(tr.dataset.i)]));
+  }
+}
+
+async function select(s) {
+  selected = s.team + '/' + s.service + '/' + s.environment;
+  render();
+  const q = new URLSearchParams({
+    service: s.service,
+    team: s.team,
+    environment: s.environment,
+    theme: theme,
+    from: 'now-' + Math.round(catalog.rangeSeconds / 60) + 'm',
+  });
+  let r;
+  try {
+    r = await fetch('/api/panels?' + q).then((x) => x.json());
+  } catch (err) {
+    $('detail').innerHTML = '<p class="note">Could not build panel links: ' + esc(err.message) + '</p>';
+    return;
+  }
+  const panels = r.panels.map((p) =>
+    '<div class="panel">' +
+      '<h3>' + esc(p.title) + '</h3>' +
+      '<iframe src="' + esc(p.src) + '" loading="lazy" title="' + esc(p.title) + '"></iframe>' +
+      (p.note ? '<p>' + esc(p.note) + '</p>' : '') +
+    '</div>').join('');
+
+  $('detail').innerHTML =
+    '<h2>' + esc(s.service) +
+    ' <span style="color:var(--muted);font-weight:400">· ' + esc(s.environment) + '</span></h2>' +
+    '<div class="panels">' + panels + '</div>' +
+    '<div class="links">' +
+      '<a href="' + esc(r.links.overview) + '" target="_blank" rel="noopener">Open in Grafana</a>' +
+      '<a href="' + esc(r.links.appMetrics) + '" target="_blank" rel="noopener">Application Metrics</a>' +
+      '<a href="' + esc(r.links.rum) + '" target="_blank" rel="noopener">Browser (RUM)</a>' +
+      '<a href="' + esc(r.links.inventory) + '" target="_blank" rel="noopener">Service Inventory</a>' +
+    '</div>';
+  $('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function load() {
+  $('rows').innerHTML = '<tr><td colspan="8" class="empty">Loading...</td></tr>';
+  try {
+    catalog = await fetch('/api/catalog?range=' + $('range').value).then((r) => r.json());
+  } catch (err) {
+    catalog = { services: [], degraded: ['could not reach the platform UI API: ' + err.message], rangeSeconds: 3600 };
+  }
+  render();
+}
+
+for (const id of ['team', 'env']) $(id).addEventListener('change', render);
+$('range').addEventListener('change', load);
+$('refresh').addEventListener('click', load);
+load();
+</script>
+</body>
+</html>
