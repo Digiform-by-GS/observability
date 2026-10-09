@@ -256,6 +256,30 @@ relying on the collector's value all share one environment name (`shared-dev` on
 apps that set their own report something more specific — worth knowing before reading the variable's
 dropdown as ground truth.
 
+### Embedding Grafana — two things that fail silently
+
+`services/platform-ui` embeds panels with `/d-solo/<uid>/<slug>?panelId=N`. Both
+prerequisites fail by rendering something plausible rather than erroring:
+
+- **`allow_embedding` must be true** (`infra/grafana/grafana.ini`). Grafana
+  defaults it to false and sends `X-Frame-Options: deny`, so every iframe is a
+  blank rectangle with nothing logged on either side. It was `deny` on the
+  platform until this was added.
+- **Panels need explicit ids.** A provisioned dashboard whose panels carry no
+  `id` comes back from Grafana's API as `id: null` — there is nothing for
+  `panelId` to point at, and a guessed number renders a *different* panel rather
+  than failing. `gen-dashboards.py` assigns them in `dashboard()`, the one
+  function every generated dashboard passes through, so a dashboard added later
+  cannot forget. `default.json` and `blast-radius.json` are **hand-written and
+  not generated** — `default.json` already carried ids 1-4, which is why it was
+  the only embeddable dashboard before this.
+
+The UI queries Mimir and Loki directly rather than through Grafana's datasource
+proxy, so `MIMIR_TENANTS` carries the pipe-separated tenant list that the
+provisioned datasource also uses. Adding a team to `infra/tenants.yaml` without
+updating it means that team's services are **missing from the catalogue** with
+nothing logged to say so — the same silent-omission shape as a wrong `team`.
+
 ### Signal-specific label gotchas
 - Tempo's metrics generator labels spanmetrics/service-graph series **`service`**, *not* `service_name`.
   Querying `sum by (service_name)` silently collapses every service into one unlabeled series.
@@ -321,6 +345,9 @@ observability-baseline/
 │   ├── observability-browser/    # browser/RUM package — newer OTel line, see below
 │   └── observability-go/         # observability-go module (Go)
 │       └── httpx/                # SEPARATE module: chix/ginx/echox/muxx router middleware
+├── services/
+│   ├── onboarding-agent/         # hosted agent: submit a repo, get it instrumented
+│   └── platform-ui/              # front door: service catalogue + embedded Grafana panels
 └── examples/
     ├── nodejs-sample/            # single Express demo app
     ├── microservices/            # checkout-api → orders → payments chain
@@ -378,6 +405,10 @@ python3 scripts/check-compat.py
 # Is the PLATFORM HOST running what the repo says? (run on the VM, before/after deploys)
 ./scripts/check-deployment.sh
 
+# Platform UI (front door). Needs PUBLIC_GRAFANA_URL — a BROWSER-reachable address,
+# because it ends up in an <iframe src>; a container name shows every user a blank panel.
+docker compose -f docker-compose.yml -f docker-compose.platform.yml                -f docker-compose.ui.yml up -d --build platform-ui
+
 # Go example service (containerised on `obs`, reaches the collector by DNS)
 docker compose build go-service && docker compose up -d go-service
 curl localhost:8090/work
@@ -411,6 +442,7 @@ First boot of any app from `/mnt/d` takes ~90–175s (WSL2 9P filesystem bridge)
 | 8888 | OTel Collector | Self-metrics (Prometheus) |
 | 9009 | Mimir | Prometheus-compatible API |
 | 4040 | Pyroscope | Continuous profiling ingest + UI |
+| 8200 | platform-ui | Platform front door — service catalogue + embedded panels |
 | 8090 | go-service | Go example, chi router (containerised on `obs`) |
 | 8091 | go-echo-service | Go example, Echo router (host-run) |
 | 6379 | Redis | cache — monitored by the collector's `redis` receiver |

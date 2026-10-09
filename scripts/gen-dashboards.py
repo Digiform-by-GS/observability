@@ -198,6 +198,21 @@ def table(title, targets, x, y, w, h, desc="", transformations=None,
 
 
 def dashboard(uid, title, description, tags, panels, templating=None, time_from="now-30m"):
+    # Stable, explicit panel ids. Grafana tolerates their absence in a dashboard
+    # file - it renders fine - so this looked unnecessary for a long time. It is
+    # not, for one reason: /d-solo/<uid>/<slug>?panelId=N is how a panel is
+    # embedded in an iframe, and that N has to identify the same panel every
+    # time. Provisioned without ids, every panel came back from Grafana's API as
+    # id=None, so there was nothing to embed against except observability-overview,
+    # which happened to carry ids already.
+    #
+    # Assigned here rather than at each call site because this is the one
+    # function every dashboard passes through, so no dashboard can be added
+    # later that forgets. Order is deterministic - the panel lists are literals -
+    # so a given panel keeps its id across regenerations, and an explicit id on
+    # a panel is honoured rather than overwritten.
+    for i, panel in enumerate(panels, start=1):
+        panel.setdefault("id", i)
     return {
         "annotations": {"list": []},
         "description": description,

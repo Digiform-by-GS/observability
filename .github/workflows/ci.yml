@@ -58,6 +58,16 @@ jobs:
           npm ci --no-audit --no-fund
           npm test
 
+      # Same reasoning as the agent above: a suite nothing runs is decoration.
+      # This one also guards the two things that fail silently rather than
+      # loudly - an embed URL whose panelId points at the wrong panel renders an
+      # empty chart, and a dropped range parameter reaches PromQL as text.
+      - name: Test platform UI
+        working-directory: services/platform-ui
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+
   go:
     name: Go (observability-go + examples)
     runs-on: ubuntu-latest
