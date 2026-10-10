@@ -770,6 +770,144 @@ app_panels = [
         16, 27, 8, 8, unit="reqps", stack=True),
 ]
 
+# ------------------------------------------------------------------ errors ---
+# One screen for "something failed - show me the line, let me pivot to the
+# trace". Built after measuring what this platform actually holds, which
+# changed the design twice:
+#
+#   1. EVERY log line here is INFO. 75,786 of them, zero ERROR. A dashboard
+#      filtering severity_text="ERROR" alone would have been correct, empty,
+#      and indistinguishable from broken - the exact failure this repo keeps
+#      hitting. Real failures are visible instead in http_response_status_code,
+#      which the access logger records on every request.
+#   2. Loki has only THREE stream labels here: __tenant_id__,
+#      deployment_environment, service_name. `team` is structured metadata, so
+#      it filters AFTER the selector. A {team="x"} matcher returns nothing,
+#      silently, exactly like severity_text.
+#
+# Hence both arms, OR'd: severity is what will match once services log errors
+# properly, status is what matches today.
+ERR_SELECTOR = '{service_name=~"$service", deployment_environment=~"$environment"}'
+# Both severity_text and http_response_status_code are structured metadata, so
+# both live after the pipe. The numeric compare is verified against the live
+# platform to parse - LogQL coerces the stored string for >= .
+ERR_FILTER = ('| team=~"$team" | severity_text=~"ERROR|FATAL|CRITICAL" '
+              'or http_response_status_code>=$min_status')
+ERR_STREAM = ERR_SELECTOR + ' ' + ERR_FILTER
+
+
+def loki_var(name, label, query):
+    """A variable whose values come from LOKI rather than Mimir.
+
+    The other dashboards source $service from span-metrics. That is wrong here:
+    a service that logs but emits no spans - sampled hard, or only running jobs
+    - would be absent from the dropdown on the one dashboard built to find its
+    errors.
+    """
+    return {
+        "name": name,
+        "label": label,
+        "type": "query",
+        "datasource": LOKI,
+        "query": {"query": query, "refId": "LokiVariableQueryEditor-VariableQuery"},
+        "refresh": 2,
+        "multi": True,
+        "includeAll": True,
+        # ".+" and NOT ".*", which is what the Prometheus variables use.
+        # Loki rejects a stream selector whose every matcher can match empty:
+        # "queries require at least one regexp or equality matcher that does
+        # not have an empty-compatible value". With ".*" this dashboard fails
+        # on its own default All/All selection - caught by running the
+        # generated queries against the live backend rather than eyeballing them.
+        "allValue": ".+",
+        "current": {"selected": True, "text": ["All"], "value": ["$__all"]},
+    }
+
+
+ERR_SERVICE_VAR = loki_var("service", "Service", "label_values(service_name)")
+ERR_ENV_VAR = loki_var("environment", "Environment", "label_values(deployment_environment)")
+
+# team is structured metadata, so there is no label_values() for it. A textbox
+# beats a query variable that would silently resolve to an empty list.
+ERR_TEAM_VAR = {
+    "name": "team", "label": "Team", "type": "textbox",
+    "query": ".*", "current": {"text": ".*", "value": ".*"},
+    "description": "Structured metadata, not a stream label, so it filters after the "
+                   "selector. Leave as .* for all teams.",
+}
+
+# The threshold is a CONTROL, not a constant, because the right value is not
+# obvious and the wrong one is invisible. 500 is the correct default - a 4xx is
+# the caller's fault, not blast radius - but this platform currently serves
+# zero 5xx against 26 4xx, so a hardcoded 500 would render an empty dashboard
+# on day one and teach everyone to distrust it.
+ERR_STATUS_VAR = {
+    "name": "min_status", "label": "Min HTTP status", "type": "custom",
+    "query": "500,400",
+    "options": [
+        {"text": "500", "value": "500", "selected": True},
+        {"text": "400", "value": "400", "selected": False},
+    ],
+    "current": {"text": "500", "value": "500"},
+    "description": "500 is real blast radius. Drop to 400 to include client errors - worth "
+                   "doing here, because this platform currently emits no 5xx at all.",
+}
+
+error_panels = [
+    text(
+        "",
+        "## Error logs\n"
+        "Failing lines across every service, newest first, each carrying its **trace_id** - "
+        "click it for the trace, or the **Blast Radius** link to see everything else that "
+        "request touched.\n\n"
+        "**What counts as an error:** `severity_text` of ERROR/FATAL/CRITICAL, **or** an HTTP "
+        "status at or above the threshold. Both arms are needed - every log line on this "
+        "platform is currently INFO, so severity alone would match nothing while real failures "
+        "sat unnoticed in the status codes.\n\n"
+        "**An empty panel is a real answer**, not a broken query: nothing matched. If you expect "
+        "errors and see none, drop the threshold to 400 before suspecting the dashboard.",
+        0, 0, 24, 5,
+    ),
+    stat(
+        "Matching lines",
+        [target("sum(count_over_time(" + ERR_STREAM + " [$__range]))", None, LOKI)],
+        0, 5, 4, 4,
+        desc="Lines matching the filter over the dashboard's time range.",
+    ),
+    stat(
+        "Services affected",
+        [target("count(sum by (service_name) (count_over_time(" + ERR_STREAM + " [$__range])))",
+                None, LOKI)],
+        4, 5, 4, 4,
+        desc="Distinct services producing a matching line. More than one is the signal worth "
+             "acting on - it points at a shared dependency rather than one service's bug.",
+    ),
+    timeseries(
+        "Error rate by service",
+        [target("sum by (service_name) (count_over_time(" + ERR_STREAM + " [$__interval]))",
+                "{{service_name}}", LOKI)],
+        8, 5, 16, 4,
+        desc="Loki labels logs service_name; Tempo's span-metrics use service. Same value, "
+             "different spelling - a query copied between the two returns one unlabelled series.",
+    ),
+    table(
+        "Where the errors are",
+        [target("sum by (service_name, http_route, http_response_status_code) "
+                "(count_over_time(" + ERR_STREAM + " [$__range]))", None, LOKI, instant=True)],
+        0, 9, 8, 13,
+        desc="Grouped by route and status, so one broken endpoint stands out from a service "
+             "failing everywhere. Routes are templates, so this stays bounded.",
+    ),
+    logs(
+        "Error lines - expand one for its trace_id",
+        ERR_STREAM,
+        8, 9, 16, 13,
+        desc="Expand a line for its structured metadata: trace_id, span_id, http_route, "
+             "duration_ms. trace_id carries links to Tempo and to Blast Radius.",
+    ),
+]
+
+
 DASHBOARDS = [
     ("app-metrics.json", dashboard(
         "app-metrics", "Application Metrics",
@@ -790,6 +928,12 @@ DASHBOARDS = [
         "browser-rum", "Browser (RUM)",
         "Real user monitoring: Core Web Vitals, page-load timings, and JS errors from the browser.",
         ["observability", "browser", "rum"], browser_panels, [SERVICE_VAR, ENVIRONMENT_VAR], time_from="now-6h")),
+    ("error-logs.json", dashboard(
+        "error-logs", "Error Logs",
+        "Failing log lines across every service, with the trace_id to pivot into the trace "
+        "or into Blast Radius.",
+        ["observability", "errors", "logs"], error_panels,
+        [ERR_SERVICE_VAR, ERR_ENV_VAR, ERR_TEAM_VAR, ERR_STATUS_VAR], time_from="now-6h")),
 ]
 
 if __name__ == "__main__":

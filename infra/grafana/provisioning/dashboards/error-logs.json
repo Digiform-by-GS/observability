@@ -1,0 +1,445 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Failing log lines across every service, with the trace_id to pivot into the trace or into Blast Radius.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Error logs\nFailing lines across every service, newest first, each carrying its **trace_id** - click it for the trace, or the **Blast Radius** link to see everything else that request touched.\n\n**What counts as an error:** `severity_text` of ERROR/FATAL/CRITICAL, **or** an HTTP status at or above the threshold. Both arms are needed - every log line on this platform is currently INFO, so severity alone would match nothing while real failures sat unnoticed in the status codes.\n\n**An empty panel is a real answer**, not a broken query: nothing matched. If you expect errors and see none, drop the threshold to 400 before suspecting the dashboard."
+      },
+      "transparent": true,
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Matching lines",
+      "description": "Lines matching the filter over the dashboard's time range.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum(count_over_time({service_name=~\"$service\", deployment_environment=~\"$environment\"} | team=~\"$team\" | severity_text=~\"ERROR|FATAL|CRITICAL\" or http_response_status_code>=$min_status [$__range]))",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Services affected",
+      "description": "Distinct services producing a matching line. More than one is the signal worth acting on - it points at a shared dependency rather than one service's bug.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "count(sum by (service_name) (count_over_time({service_name=~\"$service\", deployment_environment=~\"$environment\"} | team=~\"$team\" | severity_text=~\"ERROR|FATAL|CRITICAL\" or http_response_status_code>=$min_status [$__range])))",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Error rate by service",
+      "description": "Loki labels logs service_name; Tempo's span-metrics use service. Same value, different spelling - a query copied between the two returns one unlabelled series.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 16,
+        "x": 8,
+        "y": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum by (service_name) (count_over_time({service_name=~\"$service\", deployment_environment=~\"$environment\"} | team=~\"$team\" | severity_text=~\"ERROR|FATAL|CRITICAL\" or http_response_status_code>=$min_status [$__interval]))",
+          "refId": "A",
+          "range": true,
+          "legendFormat": "{{service_name}}"
+        }
+      ],
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Where the errors are",
+      "description": "Grouped by route and status, so one broken endpoint stands out from a service failing everywhere. Routes are templates, so this stays bounded.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 13,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        },
+        "sortBy": []
+      },
+      "transformations": [],
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum by (service_name, http_route, http_response_status_code) (count_over_time({service_name=~\"$service\", deployment_environment=~\"$environment\"} | team=~\"$team\" | severity_text=~\"ERROR|FATAL|CRITICAL\" or http_response_status_code>=$min_status [$__range]))",
+          "refId": "A",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "id": 5
+    },
+    {
+      "type": "logs",
+      "title": "Error lines - expand one for its trace_id",
+      "description": "Expand a line for its structured metadata: trace_id, span_id, http_route, duration_ms. trace_id carries links to Tempo and to Blast Radius.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 13,
+        "w": 16,
+        "x": 8,
+        "y": 9
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "{service_name=~\"$service\", deployment_environment=~\"$environment\"} | team=~\"$team\" | severity_text=~\"ERROR|FATAL|CRITICAL\" or http_response_status_code>=$min_status",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "id": 6
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "observability",
+    "errors",
+    "logs"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "query": {
+          "query": "label_values(service_name)",
+          "refId": "LokiVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "query": {
+          "query": "label_values(deployment_environment)",
+          "refId": "LokiVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "team",
+        "label": "Team",
+        "type": "textbox",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "description": "Structured metadata, not a stream label, so it filters after the selector. Leave as .* for all teams."
+      },
+      {
+        "name": "min_status",
+        "label": "Min HTTP status",
+        "type": "custom",
+        "query": "500,400",
+        "options": [
+          {
+            "text": "500",
+            "value": "500",
+            "selected": true
+          },
+          {
+            "text": "400",
+            "value": "400",
+            "selected": false
+          }
+        ],
+        "current": {
+          "text": "500",
+          "value": "500"
+        },
+        "description": "500 is real blast radius. Drop to 400 to include client errors - worth doing here, because this platform currently emits no 5xx at all."
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Error Logs",
+  "uid": "error-logs",
+  "version": 1,
+  "weekStart": ""
+}
