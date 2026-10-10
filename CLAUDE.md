@@ -294,6 +294,12 @@ nothing logged to say so — the same silent-omission shape as a wrong `team`.
   with unit `1` arrives as `browser_web_vital_cls_bucket` — no suffix. Guessing symmetry gives four
   working panels and one permanently empty one. `scripts/gen-dashboards.py` documents this; verify
   new metric names against `/prometheus/api/v1/label/__name__/values` rather than predicting them.
+- **Loki rejects a stream selector whose every matcher can match empty** — `{service_name=~".*"}`
+  fails with *"queries require at least one regexp or equality matcher that does not have an
+  empty-compatible value"*. Prometheus accepts `.*` happily, so a Grafana variable's `allValue`
+  copied from a Mimir-backed dashboard breaks a Loki-backed one **on its own default All
+  selection**. Loki variables use `allValue: ".+"`. Caught by running the generated queries
+  against the live backend; reading them would not have shown it.
 - Loki keeps `severity_text` as **structured metadata**, not a label — same as `trace_id`. Filter
   with `| severity_text="ERROR"` after the stream selector; a label matcher `{severity_text="ERROR"}`
   silently returns nothing.
@@ -484,7 +490,15 @@ nothing. Probe bindability with a throwaway `net.createServer()` script rather t
   to look
 - **Dashboards → Observability → Browser (RUM)**: Core Web Vitals at p75 by route template, vitals
   rating mix, browser span latency, and JS errors
-- **Explore → Loki**: raw log search; click "View Trace" on any log with a trace_id
+- **Dashboards → Observability → Error Logs**: failing lines across every service, newest
+  first, each with its `trace_id`. Two things worth knowing before trusting it: an error here
+  is `severity_text` ERROR/FATAL/CRITICAL **OR** an HTTP status at or above the **Min HTTP
+  status** control, because every log line on this platform is currently INFO and a
+  severity-only filter would match nothing while real failures sat in the status codes; and
+  the default threshold is 500, while the platform presently serves zero 5xx and some 4xx, so
+  an empty panel is usually honest rather than broken — drop to 400 before suspecting it
+- **Explore → Loki**: raw log search; click "View Trace" on any log with a trace_id, or
+  "Blast Radius" to see what else that request touched
 - **Explore → Tempo**: TraceQL query interface (`{ status = error }`); Service Graph tab for the map
 - **Explore → prometheus**: raw PromQL for span metrics from Tempo's generator (datasource points at Mimir)
 

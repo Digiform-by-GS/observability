@@ -20,6 +20,21 @@ datasources:
           url: '$${__value.raw}'
           datasourceUid: tempo
           urlDisplayLabel: View Trace
+        # The second half of the same pivot. "View Trace" answers "what did
+        # THIS request do"; Blast Radius answers "what else was affected",
+        # which is the question an error actually raises. Without this, getting
+        # from an error line to that view means copying the id by hand into a
+        # textbox on another dashboard - enough friction that nobody does it.
+        #
+        # A url with no datasourceUid is an internal Grafana link. Blast Radius
+        # matches with `0*$trace_id` because Tempo's API strips leading zeros
+        # while Loki stores all 32 characters; passing the full id from here is
+        # correct, and that regex tolerates both.
+        - name: BlastRadius
+          matcherType: label
+          matcherRegex: trace_id
+          url: '/d/blast-radius/blast-radius?var-trace_id=$${__value.raw}'
+          urlDisplayLabel: Blast Radius
     # Every tenant this datasource may read, plus the legacy single-tenant
     # id for data written before the cutover. Generated from
     # infra/tenants.yaml; `gen-tenants.py --check` fails if they disagree.
